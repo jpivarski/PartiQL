@@ -14,7 +14,7 @@ class Array:
         return str(self.tolist())
 
     def tolist(self):
-        return [x.tolist() for x in self]
+        return [x.tolist() if isinstance(x, Array) else x for x in self]
 
     def __eq__(self, other):
         if isinstance(other, Array):
@@ -24,6 +24,10 @@ class Array:
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def setkey(self, row=None, col=None):
+        self._row = [(i,) for i in range(len(self))] if row is None else row
+        self._col = () if col is None else col
 
 class PrimitiveArray(Array):
     def __init__(self, data):
@@ -41,7 +45,7 @@ class PrimitiveArray(Array):
         return len(self._data)
 
     def tolist(self):
-        return self._data
+        return list(self._data)
 
 class ListArray(Array):
     def __init__(self, starts, stops, content):
@@ -60,6 +64,14 @@ class ListArray(Array):
     def __len__(self):
         return len(self._starts)
 
+    def setkey(self, row=None, col=None):
+        super(ListArray, self).setkey(row, col)
+        subrow = [-1] * len(self._content)
+        for i, r in enumerate(self._row):
+            for j in range(self._stops[i] - self._starts[i]):
+                subrow[self._starts[i] + j] = r + (j,)
+        self._content.setkey(subrow, col)
+
 class UnionArray(Array):
     def __init__(self, tags, index, contents):
         self._tags, self._index, self._contents = tags, index, contents
@@ -76,6 +88,14 @@ class UnionArray(Array):
 
     def __len__(self):
         return len(self._tags)
+
+    def setkey(self, row=None, col=None):
+        super(UnionArray, self).setkey(row, col)
+        subrows = [[-1] * len(x) for x in self._contents]
+        for i, r in enumerate(self._row):
+            subrows[self._tags[i]][self._index[i]] = r
+        for subrow, x in zip(subrows, self._contents):
+            x.setkey(subrow, col)
 
 class RecordArray(Array):
     def __init__(self, contents):
@@ -97,6 +117,11 @@ class RecordArray(Array):
     def tolist(self):
         contents = {n: x.tolist() for n, x in self._contents.items()}
         return [{n: x[i] for n, x in contents.items()} for i in range(len(self))]
+
+    def setkey(self, row=None, col=None):
+        super(RecordArray, self).setkey(row, col)
+        for n, x in self._contents.items():
+            x.setkey(self._row, (n,) if col is None else col + (n,))
 
 ################################################################################
 
@@ -173,3 +198,18 @@ def test_data():
     assert events["muons"][0]["pt"][2] == events[0]["muons"]["pt"][2]
     assert events["muons"][0]["pt"][2] == events[0]["muons"][2]["pt"]
     assert events["muons"][0]["pt"][2] == events["muons"][0][2]["pt"]
+    assert events["muons"][0]["pt"][2] == events["muons"]["pt"][0][2]
+
+    events.setkey()
+
+    muonpt = events._contents["muons"]._content._contents["pt"]
+    assert muonpt._row == [(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)]
+    assert muonpt._col == ('muons', 'pt')
+
+    muoniso = events._contents["muons"]._content._contents["iso"]
+    assert muonpt._row == muoniso._row
+    assert muonpt._row is muoniso._row
+
+    c1, c2 = muonpt._col
+    for i, (r1, r2) in enumerate(muonpt._row):
+        assert events[c1][c2][r1][r2] == muonpt[i]
