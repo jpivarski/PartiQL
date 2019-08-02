@@ -16,6 +16,15 @@ class Array:
     def tolist(self):
         return [x.tolist() for x in self]
 
+    def __eq__(self, other):
+        if isinstance(other, Array):
+            return self.tolist() == other.tolist()
+        else:
+            return self.tolist() == other
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
 class PrimitiveArray(Array):
     def __init__(self, data):
         self._data = data
@@ -23,8 +32,10 @@ class PrimitiveArray(Array):
     def __getitem__(self, where):
         if isinstance(where, slice):
             return PrimitiveArray(self._data[where])
-        else:
+        elif isinstance(where, int):
             return self._data[where]
+        else:
+            raise TypeError("PrimitiveArray cannot be selected with {0}".format(where))
 
     def __len__(self):
         return len(self._data)
@@ -37,10 +48,14 @@ class ListArray(Array):
         self._starts, self._stops, self._content = starts, stops, content
 
     def __getitem__(self, where):
-        if isinstance(where, slice):
+        if isinstance(where, str):
+            return ListArray(self._starts, self._stops, self._content[where])
+        elif isinstance(where, slice):
             return ListArray(self._starts[where], self._stops[where], self._content)
-        else:
+        elif isinstance(where, int):
             return self._content[self._starts[where]:self._stops[where]]
+        else:
+            raise TypeError("ListArray cannot be selected with {0}".format(where))
 
     def __len__(self):
         return len(self._starts)
@@ -50,10 +65,14 @@ class UnionArray(Array):
         self._tags, self._index, self._contents = tags, index, contents
 
     def __getitem__(self, where):
-        if isinstance(where, slice):
+        if isinstance(where, str):
+            return UnionArray(self._tags, self._index, [x[where] for x in self._contents])
+        elif isinstance(where, slice):
             return UnionArray(self._tags[where], self._index[where], self._contents)
-        else:
+        elif isinstance(where, int):
             return self._contents[self._tags[where]][self._index[where]]
+        else:
+            raise TypeError("UnionArray cannot be selected with {0}".format(where))
 
     def __len__(self):
         return len(self._tags)
@@ -63,10 +82,14 @@ class RecordArray(Array):
         self._contents = contents
 
     def __getitem__(self, where):
-        if isinstance(where, slice):
-            return RecordArray({n: x[where] for n, x in self._contents.items()})
-        else:
+        if isinstance(where, str):
             return self._contents[where]
+        elif isinstance(where, slice):
+            return RecordArray({n: x[where] for n, x in self._contents.items()})
+        elif isinstance(where, int):
+            return {n: x[where] for n, x in self._contents.items()}
+        else:
+            raise TypeError("RecordArray cannot be selected with {0}".format(where))
 
     def __len__(self):
         return min(len(x) for x in self._contents.values())
@@ -78,6 +101,7 @@ class RecordArray(Array):
 ################################################################################
 
 def test_data():
+    # data in columnar form
     events = RecordArray({
         "muons": ListArray([0, 3, 3, 5], [3, 3, 5, 9], RecordArray({
             "pt": PrimitiveArray([1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]),
@@ -90,7 +114,8 @@ def test_data():
         "met": PrimitiveArray([100, 200, 300, 400])
     })
 
-    assert events.tolist() == [
+    # same data in rowwise form
+    assert events == [
         {'muons': [
             {'pt': 1.1, 'iso': 0},
             {'pt': 2.2, 'iso': 0},
@@ -123,3 +148,28 @@ def test_data():
             {'pt': 3, 'mass': 7},
             {'pt': 4, 'mass': 6}],
          'met': 400}]
+
+    # projection down to the numerical values
+    assert events["muons"]["pt"] == [[1.1, 2.2, 3.3], [], [4.4, 5.5], [6.6, 7.7, 8.8, 9.9]]
+
+    # single record object
+    assert events[0] == {
+        'muons': [
+            {'pt': 1.1, 'iso': 0},
+            {'pt': 2.2, 'iso': 0},
+            {'pt': 3.3, 'iso': 100}],
+        'jets': [
+            {'pt': 1, 'mass': 10},
+            {'pt': 2, 'mass': 10},
+            {'pt': 3, 'mass': 10},
+            {'pt': 4, 'mass': 10},
+            {'pt': 5, 'mass': 10}],
+        'met': 100}
+
+    # integer and string indexes commute, but string-string and integer-integer do not
+    assert events["muons"][0]          == events[0]["muons"]
+    assert events["muons"][0]["pt"]    == events[0]["muons"]["pt"]
+    assert events["muons"][0][2]       == events[0]["muons"][2]
+    assert events["muons"][0]["pt"][2] == events[0]["muons"]["pt"][2]
+    assert events["muons"][0]["pt"][2] == events[0]["muons"][2]["pt"]
+    assert events["muons"][0]["pt"][2] == events["muons"][0][2]["pt"]
