@@ -1,0 +1,125 @@
+# This is a simplified implementation of awkward classes to demonstrate a prototype SQL.
+#
+# PLUR types: Primitive, List, Union, Record
+
+class Array:
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+    def __repr__(self):
+        return "<Array {0}>".format(str(self))
+
+    def __str__(self):
+        return str(self.tolist())
+
+    def tolist(self):
+        return [x.tolist() for x in self]
+
+class PrimitiveArray(Array):
+    def __init__(self, data):
+        self._data = data
+
+    def __getitem__(self, where):
+        if isinstance(where, slice):
+            return PrimitiveArray(self._data[where])
+        else:
+            return self._data[where]
+
+    def __len__(self):
+        return len(self._data)
+
+    def tolist(self):
+        return self._data
+
+class ListArray(Array):
+    def __init__(self, starts, stops, content):
+        self._starts, self._stops, self._content = starts, stops, content
+
+    def __getitem__(self, where):
+        if isinstance(where, slice):
+            return ListArray(self._starts[where], self._stops[where], self._content)
+        else:
+            return self._content[self._starts[where]:self._stops[where]]
+
+    def __len__(self):
+        return len(self._starts)
+
+class UnionArray(Array):
+    def __init__(self, tags, index, contents):
+        self._tags, self._index, self._contents = tags, index, contents
+
+    def __getitem__(self, where):
+        if isinstance(where, slice):
+            return UnionArray(self._tags[where], self._index[where], self._contents)
+        else:
+            return self._contents[self._tags[where]][self._index[where]]
+
+    def __len__(self):
+        return len(self._tags)
+
+class RecordArray(Array):
+    def __init__(self, contents):
+        self._contents = contents
+
+    def __getitem__(self, where):
+        if isinstance(where, slice):
+            return RecordArray({n: x[where] for n, x in self._contents.items()})
+        else:
+            return self._contents[where]
+
+    def __len__(self):
+        return min(len(x) for x in self._contents.values())
+
+    def tolist(self):
+        contents = {n: x.tolist() for n, x in self._contents.items()}
+        return [{n: x[i] for n, x in contents.items()} for i in range(len(self))]
+
+################################################################################
+
+def test_data():
+    events = RecordArray({
+        "muons": ListArray([0, 3, 3, 5], [3, 3, 5, 9], RecordArray({
+            "pt": PrimitiveArray([1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]),
+            "iso": PrimitiveArray([0, 0, 100, 50, 30, 1, 2, 3, 4])
+        })),
+        "jets": ListArray([0, 5, 6, 8], [5, 6, 8, 12], RecordArray({
+            "pt": PrimitiveArray([1, 2, 3, 4, 5, 100, 30, 50, 1, 2, 3, 4]),
+            "mass": PrimitiveArray([10, 10, 10, 10, 10, 5, 15, 15, 9, 8, 7, 6])
+        })),
+        "met": PrimitiveArray([100, 200, 300, 400])
+    })
+
+    assert events.tolist() == [
+        {'muons': [
+            {'pt': 1.1, 'iso': 0},
+            {'pt': 2.2, 'iso': 0},
+            {'pt': 3.3, 'iso': 100}],
+         'jets': [
+            {'pt': 1, 'mass': 10},
+            {'pt': 2, 'mass': 10},
+            {'pt': 3, 'mass': 10},
+            {'pt': 4, 'mass': 10},
+            {'pt': 5, 'mass': 10}],
+         'met': 100},
+        {'muons': [],
+         'jets': [{'pt': 100, 'mass': 5}],
+         'met': 200},
+        {'muons': [
+            {'pt': 4.4, 'iso': 50},
+            {'pt': 5.5, 'iso': 30}],
+         'jets': [
+            {'pt': 30, 'mass': 15},
+            {'pt': 50, 'mass': 15}],
+         'met': 300},
+        {'muons': [
+            {'pt': 6.6, 'iso': 1},
+            {'pt': 7.7, 'iso': 2},
+            {'pt': 8.8, 'iso': 3},
+            {'pt': 9.9, 'iso': 4}],
+         'jets': [
+            {'pt': 1, 'mass': 9},
+            {'pt': 2, 'mass': 8},
+            {'pt': 3, 'mass': 7},
+            {'pt': 4, 'mass': 6}],
+         'met': 400}]
