@@ -135,6 +135,12 @@ class Block(AST):
 class Call(AST):
     _fields = ("function", "arguments")
 
+class GetItem(AST):
+    _fields = ("container", "where")
+
+class GetAttr(AST):
+    _fields = ("object", "field")
+
 class Choose(AST):
     _fields = ("symbols", "table")
 
@@ -180,18 +186,28 @@ def parse(source, debug=False):
         elif node.data == "string":
             return Literal(eval(str(node.children[0])), line=node.children[0].line, source=source)
 
-        elif node.data == "call" and len(node.children) == 2 and node.children[1].data == "args":
+        elif node.data == "call" and len(node.children) == 2:
+            if node.children[1].data == "attr":
+                return GetAttr(toast(node.children[0], macros), str(node.children[1].children[0]), source=source)
+
             args = [toast(x, macros) for x in node.children[1].children[0].children] if len(node.children[1].children) != 0 else []
 
-            if len(node.children[0].children) == 1 and node.children[0].children[0].data == "symbol" and str(node.children[0].children[0].children[0]) in macros:
-                name = str(node.children[0].children[0].children[0])
-                params, body = macros[name]
-                if len(params) != len(args):
-                    raise LanguageError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line, source)
-                return body.replace(dict(zip(params, args)))
+            if node.children[1].data == "args":
+                if len(node.children[0].children) == 1 and node.children[0].children[0].data == "symbol" and str(node.children[0].children[0].children[0]) in macros:
+                    name = str(node.children[0].children[0].children[0])
+                    params, body = macros[name]
+                    if len(params) != len(args):
+                        raise LanguageError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line, source)
+                    return body.replace(dict(zip(params, args)))
+
+                else:
+                    return Call(toast(node.children[0], macros), args, source=source)
+
+            elif node.children[1].data == "items":
+                return GetItem(toast(node.children[0], macros), args, source=source)
 
             else:
-                return Call(toast(node.children[0], macros), args, source=source)
+                assert False
 
         elif node.data == "histogram":
             return Histogram(toast(node.children[0], macros), None, None, None, source=source)
@@ -264,3 +280,10 @@ def test_expressions():
     assert parse(r"1") == [Literal(1)]
     assert parse(r"3.14") == [Literal(3.14)]
     assert parse(r'"hello"') == [Literal("hello")]
+    assert parse(r"f(x)") == [Call(Symbol("f"), [Symbol("x")])]
+    assert parse(r"f(x, 1, 3.14)") == [Call(Symbol("f"), [Symbol("x"), Literal(1), Literal(3.14)])]
+    parse(r"a[0]")
+    assert parse(r"a[0]") == [GetItem(Symbol("a"), [Literal(0)])]
+    assert parse(r"a[0, i]") == [GetItem(Symbol("a"), [Literal(0), Symbol("i")])]
+    assert parse(r"a.b") == [GetAttr(Symbol("a"), "b")]
+    assert parse(r"a.b.c") == [GetAttr(GetAttr(Symbol("a"), "b"), "c")]
