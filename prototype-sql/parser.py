@@ -11,7 +11,7 @@ assignments: NEWLINE? (assignment (NEWLINE | ";"+))* assignment NEWLINE?
 statement:   assignment | histogram | vary | cut
 sideeffect:  assignment | histogram
 
-function:    "def" CNAME "(" namelist ")" "=" "{" statements expression? "}"
+function:    "def" CNAME "(" namelist ")" "{" statements expression? "}"
 assignment:  CNAME "=" (expression | table)
 
 cut:        "cut" expression weight? named? "{" statements "}"
@@ -72,6 +72,41 @@ COMMENT: "#" /.*/ NEWLINE | "//" /.*/ NEWLINE | "/*" /(.|\n|\r)*/ "*/"
 """
 
 parser = lark.Lark(grammar)
+
+class AST:
+    _fields = ()
+    def __init__(self, *args, line=None):
+        self.line = line
+        for n, x in zip(self._fields, args):
+            setattr(self, n, x)
+            if self.line is None: self.line = x.line
+
+    def __repr__(self):
+        return "{0}({1})".format(type(self).__name__, ", ".join(getattr(self, n) for n in self._fields))
+
+    def __eq__(self, other):
+        return type(self) is type(other) and all(getattr(self, n) == getattr(other, n) for n in self._fields)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+class Literal(AST):
+    _fields = ("value",)
+
+class Symbol(AST):
+    _fields = ("symbol",)
+
+class Block(AST):
+    _fields = ("sideeffects", "expression")
+
+class Call(AST):
+    _fields = ("function", "arguments")
+
+
+
+
+
+################################################################################ tests
 
 def test_parser():
     print(parser.parse(r"""
