@@ -168,7 +168,8 @@ def parse(source, debug=False):
 
     op2fcn = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**",
               "pos": "*1", "neg": "*-1",
-              "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in"}
+              "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in",
+              "and": "and", "or": "or", "isnot": "not"}
 
     def toast(node, macros):
         if isinstance(node, lark.Token):
@@ -191,11 +192,14 @@ def parse(source, debug=False):
         elif node.data == "string":
             return Literal(eval(str(node.children[0])), line=node.children[0].line, source=source)
 
-        elif node.data in ("add", "sub", "mul", "div", "pow", "eq", "ne", "gt", "ge", "lt", "le", "in", "notin") and len(node.children) == 2:
+        elif node.data in ("add", "sub", "mul", "div", "pow", "eq", "ne", "gt", "ge", "lt", "le", "in", "notin", "and", "or") and len(node.children) == 2:
             return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros), toast(node.children[1], macros)], source=source)
 
-        elif node.data in ("pos", "neg") and len(node.children) == 1:
+        elif node.data in ("pos", "neg", "isnot") and len(node.children) == 1:
             return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros)], source=source)
+
+        elif node.data == "branch" and len(node.children) == 3:
+            return Call(Symbol("if"), [toast(node.children[0], macros), toast(node.children[1], macros), toast(node.children[2], macros)], source=source)
 
         elif node.data == "call" and len(node.children) == 2:
             if node.children[1].data == "attr":
@@ -318,3 +322,9 @@ def test_expressions():
     assert parse(r"x <= 0") == [Call(Symbol("<="), [Symbol("x"), Literal(0)])]
     assert parse(r"x in table") == [Call(Symbol("in"), [Symbol("x"), Symbol("table")])]
     assert parse(r"x not in table") == [Call(Symbol("not in"), [Symbol("x"), Symbol("table")])]
+    assert parse(r"p and q") == [Call(Symbol("and"), [Symbol("p"), Symbol("q")])]
+    assert parse(r"p or q") == [Call(Symbol("or"), [Symbol("p"), Symbol("q")])]
+    assert parse(r"not p") == [Call(Symbol("not"), [Symbol("p")])]
+    assert parse(r"p or q and r") == [Call(Symbol("or"), [Symbol("p"), Call(Symbol("and"), [Symbol("q"), Symbol("r")])])]
+    assert parse(r"(p or q) and r") == [Call(Symbol("and"), [Call(Symbol("or"), [Symbol("p"), Symbol("q")]), Symbol("r")])]
+    assert parse(r"if x > 0 then 1 else -1") == [Call(Symbol("if"), [Call(Symbol(">"), [Symbol("x"), Literal(0)]), Literal(1), Call(Symbol("*-1"), [Literal(1)])])]
