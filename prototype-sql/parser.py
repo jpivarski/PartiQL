@@ -3,15 +3,25 @@
 import lark
 
 class LanguageError(Exception):
-    def __init__(self, message, line):
+    def __init__(self, message, line=None, source=None):
         self.message, self.line = message, line
         if line is not None:
             message = "Line {0}: {1}".format(line, message)
+            if source is not None:
+                context = source.split("\n")[line - 2 : line]
+                if line == 1:
+                    context[0]  = "{0:>3d} --> {1}".format(line, context[0])
+                    context[1:] = ["{0:>3d}     {1}".format(line + 1 + i, x) for i, x in enumerate(context[1:])]
+                else:
+                    context[0]  = "{0:>3d}     {1}".format(line - 1, context[0])
+                    context[1]  = "{0:>3d} --> {1}".format(line, context[1])
+                    context[2:] = ["{0:>3d}     {1}".format(line + 1 + i, x) for i, x in enumerate(context[2:])]
+                message = message + "\n" + "\n".join(context)
         super(LanguageError, self).__init__(message)
 
 grammar = r"""
-start:       NEWLINE? (statement  (NEWLINE | ";"+))*            NEWLINE?
-statements:  NEWLINE? (statement  (NEWLINE | ";"+))* statement  NEWLINE?
+start:       NEWLINE? (statement  (NEWLINE | ";"+))* statement? NEWLINE? ";"*  NEWLINE?
+statements:  NEWLINE? (statement  (NEWLINE | ";"+))* statement NEWLINE? ";"*  NEWLINE?
 blockitems:  NEWLINE? (blockitem  (NEWLINE | ";"+))* blockitem  NEWLINE?
 assignments: NEWLINE? (assignment (NEWLINE | ";"+))* assignment NEWLINE?
 statement:   expression | assignment | histogram | vary | cut | macro
@@ -64,7 +74,7 @@ trailer: "(" arglist? ")" -> args
        | "[" arglist "]" -> items
        | "." CNAME -> attr
 
-COMMENT: "#" /.*/ NEWLINE | "//" /.*/ NEWLINE | "/*" /(.|\n|\r)*/ "*/"
+COMMENT: "#" /.*/ | "//" /.*/ | "/*" /(.|\n|\r)*/ "*/"
 
 %import common.CNAME
 %import common.INT
@@ -79,8 +89,9 @@ COMMENT: "#" /.*/ NEWLINE | "//" /.*/ NEWLINE | "/*" /(.|\n|\r)*/ "*/"
 
 class AST:
     _fields = ()
-    def __init__(self, *args, line=None):
-        self.line = line
+
+    def __init__(self, *args, line=None, source=None):
+        self.line, self.source = line, source
         for n, x in zip(self._fields, args):
             setattr(self, n, x)
             if self.line is None:
@@ -152,22 +163,22 @@ def parse(source, debug=False):
             return None
 
         elif node.data == "macro":
-            macros[str(node.children[0])] = ([str(x) for x in node.children[1:-1]], Block(toast(node.children[-1], macros)))
+            macros[str(node.children[0])] = ([str(x) for x in node.children[1:-1]], Block(toast(node.children[-1], macros), source=source))
             return None
 
         elif node.data == "symbol":
             if str(node.children[0]) in macros:
-                raise LanguageError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line)
+                raise LanguageError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source)
             return Symbol(str(node.children[0]), line=node.children[0].line)
 
         elif node.data == "int":
-            return Literal(int(str(node.children[0])), line=node.children[0].line)
+            return Literal(int(str(node.children[0])), line=node.children[0].line, source=source)
 
         elif node.data == "float":
-            return Literal(float(str(node.children[0])), line=node.children[0].line)
+            return Literal(float(str(node.children[0])), line=node.children[0].line, source=source)
 
         elif node.data == "string":
-            return Literal(eval(str(node.children[0])), line=node.children[0].line)
+            return Literal(eval(str(node.children[0])), line=node.children[0].line, source=source)
 
         elif node.data == "call" and len(node.children) == 2 and node.children[1].data == "args":
             args = [toast(x, macros) for x in node.children[1].children[0].children] if len(node.children[1].children) != 0 else []
@@ -176,14 +187,14 @@ def parse(source, debug=False):
                 name = str(node.children[0].children[0].children[0])
                 params, body = macros[name]
                 if len(params) != len(args):
-                    raise LanguageError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line)
+                    raise LanguageError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line, source)
                 return body.replace(dict(zip(params, args)))
 
             else:
-                return Call(toast(node.children[0], macros), args)
+                return Call(toast(node.children[0], macros), args, source=source)
 
         elif node.data == "histogram":
-            return Histogram(toast(node.children[0], macros), None, None, None)
+            return Histogram(toast(node.children[0], macros), None, None, None, source=source)
 
         elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call"):
             return toast(node.children[0], macros)
@@ -212,10 +223,53 @@ parse.parser = lark.Lark(grammar)
 
 ################################################################################ tests
 
-def test_parser():
+def test_whitespace():
+    assert parse(r"") == []
+    assert parse(r"""x
+""") == [Symbol("x")]
     assert parse(r"""
+x""") == [Symbol("x")]
+    assert parse(r"""
+x
+""") == [Symbol("x")]
+    assert parse(r"""
+x
+
+""") == [Symbol("x")]
+    assert parse(r"""
+
+x
+""") == [Symbol("x")]
+    assert parse(r"""
+
+x
+
+""") == [Symbol("x")]
+    assert parse(r"x   # comment") == [Symbol("x")]
+    assert parse(r"x   // comment") == [Symbol("x")]
+    assert parse(r"""
+x  /* multiline
+      comment */
+""") == [Symbol("x")]
+    assert parse(r"""# comment
+x""") == [Symbol("x")]
+    assert parse(r"""// comment
+x""") == [Symbol("x")]
+    assert parse(r"""/* multiline
+                        comment */
+x""") == [Symbol("x")]
+
+    parse(r"""
 def whatever(x) {
     hist x
 }
-whatever(pt)
-""") == [Histogram(Symbol("pt"), None, None, None)]
+whatever()
+""")
+
+def test_expressions():
+    assert parse(r"x") == [Symbol("x")]
+    assert parse(r"1") == [Literal(1)]
+    assert parse(r"3.14") == [Literal(3.14)]
+    assert parse(r'"hello"') == [Literal("hello")]
+
+test_whitespace()
