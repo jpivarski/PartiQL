@@ -55,7 +55,7 @@ not:        comparison | "not" not -> isnot
 comparison: arith | arith "==" arith -> eq | arith "!=" arith -> ne
                   | arith ">" arith -> gt  | arith ">=" arith -> ge
                   | arith "<" arith -> lt  | arith "<=" arith -> le
-                  | arith "in" expression -> in | arith "not" "in" expression -> in
+                  | arith "in" expression -> in | arith "not" "in" expression -> notin
 arith:   term     | term "+" arith  -> add | term "-" arith -> sub
 term:    factor   | factor "*" term -> mul | factor "/" term -> div
 factor:  pow      | "+" factor      -> pos | "-" factor -> neg
@@ -100,6 +100,8 @@ class AST:
                         self.line = getattr(x[0], "line", None)
                 else:
                     self.line = getattr(x, "line", None)
+        if self.line is not None:
+            assert self.source is not None
 
     def __repr__(self):
         return "{0}({1})".format(type(self).__name__, ", ".join(repr(getattr(self, n)) for n in self._fields))
@@ -164,6 +166,10 @@ def parse(source, debug=False):
     if debug:
         print(start.pretty())
 
+    op2fcn = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**",
+              "pos": "*1", "neg": "*-1",
+              "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in"}
+
     def toast(node, macros):
         if isinstance(node, lark.Token):
             return None
@@ -175,8 +181,7 @@ def parse(source, debug=False):
         elif node.data == "symbol":
             if str(node.children[0]) in macros:
                 raise LanguageError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source)
-            return Symbol(str(node.children[0]), line=node.children[0].line)
-
+            return Symbol(str(node.children[0]), line=node.children[0].line, source=source)
         elif node.data == "int":
             return Literal(int(str(node.children[0])), line=node.children[0].line, source=source)
 
@@ -185,6 +190,12 @@ def parse(source, debug=False):
 
         elif node.data == "string":
             return Literal(eval(str(node.children[0])), line=node.children[0].line, source=source)
+
+        elif node.data in ("add", "sub", "mul", "div", "pow", "eq", "ne", "gt", "ge", "lt", "le", "in", "notin") and len(node.children) == 2:
+            return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros), toast(node.children[1], macros)], source=source)
+
+        elif node.data in ("pos", "neg") and len(node.children) == 1:
+            return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros)], source=source)
 
         elif node.data == "call" and len(node.children) == 2:
             if node.children[1].data == "attr":
@@ -212,7 +223,7 @@ def parse(source, debug=False):
         elif node.data == "histogram":
             return Histogram(toast(node.children[0], macros), None, None, None, source=source)
 
-        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call"):
+        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             return toast(node.children[0], macros)
 
         elif node.data in ("start", "statements", "blockitems", "assignments"):
@@ -284,6 +295,26 @@ def test_expressions():
     assert parse(r"f(x, 1, 3.14)") == [Call(Symbol("f"), [Symbol("x"), Literal(1), Literal(3.14)])]
     parse(r"a[0]")
     assert parse(r"a[0]") == [GetItem(Symbol("a"), [Literal(0)])]
+    assert parse(r"a[0][i]") == [GetItem(GetItem(Symbol("a"), [Literal(0)]), [Symbol("i")])]
     assert parse(r"a[0, i]") == [GetItem(Symbol("a"), [Literal(0), Symbol("i")])]
     assert parse(r"a.b") == [GetAttr(Symbol("a"), "b")]
     assert parse(r"a.b.c") == [GetAttr(GetAttr(Symbol("a"), "b"), "c")]
+    assert parse(r"x**2") == [Call(Symbol("**"), [Symbol("x"), Literal(2)])]
+    assert parse(r"2*x") == [Call(Symbol("*"), [Literal(2), Symbol("x")])]
+    assert parse(r"x/10") == [Call(Symbol("/"), [Symbol("x"), Literal(10)])]
+    assert parse(r"x + y") == [Call(Symbol("+"), [Symbol("x"), Symbol("y")])]
+    assert parse(r"x - y") == [Call(Symbol("-"), [Symbol("x"), Symbol("y")])]
+    assert parse(r"x + 2*y") == [Call(Symbol("+"), [Symbol("x"), Call(Symbol("*"), [Literal(2), Symbol("y")])])]
+    assert parse(r"(x + 2)*y") == [Call(Symbol("*"), [Call(Symbol("+"), [Symbol("x"), Literal(2)]), Symbol("y")])]
+    assert parse(r"+x") == [Call(Symbol("*1"), [Symbol("x")])]
+    assert parse(r"-x") == [Call(Symbol("*-1"), [Symbol("x")])]
+    assert parse(r"+3.14") == [Call(Symbol("*1"), [Literal(3.14)])]
+    assert parse(r"-3.14") == [Call(Symbol("*-1"), [Literal(3.14)])]
+    assert parse(r"x == 0") == [Call(Symbol("=="), [Symbol("x"), Literal(0)])]
+    assert parse(r"x != 0") == [Call(Symbol("!="), [Symbol("x"), Literal(0)])]
+    assert parse(r"x > 0") == [Call(Symbol(">"), [Symbol("x"), Literal(0)])]
+    assert parse(r"x >= 0") == [Call(Symbol(">="), [Symbol("x"), Literal(0)])]
+    assert parse(r"x < 0") == [Call(Symbol("<"), [Symbol("x"), Literal(0)])]
+    assert parse(r"x <= 0") == [Call(Symbol("<="), [Symbol("x"), Literal(0)])]
+    assert parse(r"x in table") == [Call(Symbol("in"), [Symbol("x"), Symbol("table")])]
+    assert parse(r"x not in table") == [Call(Symbol("not in"), [Symbol("x"), Symbol("table")])]
