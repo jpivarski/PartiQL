@@ -5,6 +5,11 @@
 import key
 
 class Array:
+    "Abstract base class."
+
+    def __init__(self):
+        raise TypeError("cannot instantiate an abstract base class")
+
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]
@@ -32,6 +37,8 @@ class Array:
         self._col = key.ColKey() if col is None else col
 
 class PrimitiveArray(Array):
+    "Array of fixed-bytewidth objects: booleans, numbers, etc."
+
     def __init__(self, data):
         self._data = data
 
@@ -50,6 +57,8 @@ class PrimitiveArray(Array):
         return list(self._data)
 
 class ListArray(Array):
+    "Array of variable-length but single-type lists (a.k.a. JaggedArray)."
+
     def __init__(self, starts, stops, content):
         self._starts, self._stops, self._content = starts, stops, content
 
@@ -75,6 +84,8 @@ class ListArray(Array):
         self._content.setkey(key.RowKey(subrow), col)
 
 class UnionArray(Array):
+    "Array of possibly multiple types (a.k.a. tagged union/sum type)."
+
     def __init__(self, tags, index, contents):
         self._tags, self._index, self._contents = tags, index, contents
 
@@ -100,6 +111,8 @@ class UnionArray(Array):
             x.setkey(key.RowKey(subrow), col)
 
 class RecordArray(Array):
+    "Array of record objects (a.k.a. Table, array of structs/product type)."
+
     def __init__(self, contents):
         self._contents = contents
 
@@ -124,6 +137,23 @@ class RecordArray(Array):
         super(RecordArray, self).setkey(row, col)
         for n, x in self._contents.items():
             x.setkey(self._row, key.ColKey(n) if col is None else col.withattr(n))
+
+class Instance:
+    def __init__(self, value, row, col):
+        assert row is not None and col is not None
+        self._value, self._row, self._col = value, row, col
+
+    def __repr__(self):
+        return "<Instance at {0}, {1}: {2}>".format(self._row, self._col, self._value)
+
+    def same(self, other):
+        return isinstance(other, Instance) and (self._row == other._row and self._col == other._col)
+
+    def __eq__(self, other):
+        return isinstance(other, Instance) and (self.same(other) or self._value == other._value)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
 ################################################################################
 
@@ -205,12 +235,12 @@ def test_data():
     events.setkey()
 
     muonpt = events._contents["muons"]._content._contents["pt"]
-    assert muonpt._row == key.RowKey([(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)])
-    assert muonpt._col == key.ColKey("muons", "pt")
+    assert muonpt._row == [(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)]
+    assert muonpt._col == ("muons", "pt")
 
     muoniso = events._contents["muons"]._content._contents["iso"]
     assert muonpt._row == muoniso._row
-    assert muonpt._row is muoniso._row
+    assert muonpt._row.same(muoniso._row)
 
     c1, c2 = muonpt._col.tolist()
     for i, (r1, r2) in enumerate(muonpt._row):
@@ -240,7 +270,7 @@ def test_data():
     assert egamma["pt"] == [10, 20, 1.1, 30, 2.2, 3.3, 4.4, 40, 50]
 
     egamma.setkey()
-    assert egamma._contents[0]._contents["pt"]._row == key.RowKey([(0,), (1,), (3,), (7,), (8,)])
-    assert egamma._contents[1]._contents["pt"]._row == key.RowKey([(2,), (4,), (5,), (6,)])
-    assert egamma._contents[0]._contents["pt"]._col == key.ColKey("pt")
-    assert egamma._contents[1]._contents["pt"]._col == key.ColKey("pt")
+    assert egamma._contents[0]._contents["pt"]._row == [(0,), (1,), (3,), (7,), (8,)]
+    assert egamma._contents[1]._contents["pt"]._row == [(2,), (4,), (5,), (6,)]
+    assert egamma._contents[0]._contents["pt"]._col == ("pt",)
+    assert egamma._contents[1]._contents["pt"]._col == ("pt",)

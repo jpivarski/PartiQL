@@ -3,12 +3,21 @@
 class RowKey:
     "RowKey is array-like, with each entry specifying the sequence of integer indexes as a path from root to tree-node. Referential identity is important, as it determines which arrays are compatible in ufunc-like operations."
 
+    @staticmethod
+    def newid():
+        out = RowKey.numids
+        RowKey.numids += 1
+        return out
+
+    numids = 0
+
     def __init__(self, array):
         "In this prototype, 'array' is a list of equal-length tuples."
         self._array = array
+        self._id = RowKey.newid()
 
     def __repr__(self):
-        return "<RowKey {0} at 0x{1:012x}>".format(self.tolist(), id(self))
+        return "<RowKey {0}: {1}>".format(self._id, self.tolist())
 
     def __str__(self):
         return str(self.tolist())
@@ -18,16 +27,37 @@ class RowKey:
 
     def __eq__(self, other):
         if isinstance(other, RowKey):
-            return self.tolist() == other.tolist()
+            return self._id == other._id and self.tolist() == other.tolist()
         else:
             return self.tolist() == other
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def same(self, other):
+        return isinstance(other, RowKey) and self._id == other._id
+
     def __iter__(self):
         for x in self._array:
             yield x
+
+    def __getitem__(self, where):
+        return RowInstance(self._id, self._array[where])
+
+class RowInstance:
+    "RowInstance is an element of a RowKey, representing a unique object by reference."
+
+    def __init__(self, id, key):
+        self._id, self._key = id, key
+
+    def __repr__(self):
+        return "<RowInstance {0}: {1}>".format(self._id, self._key)
+
+    def __eq__(self, other):
+        return isinstance(other, RowInstance) and self._id == other._id and self._key == other._key
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
 class ColKey:
     "ColKey is AST-like, specifying the sequence of string indexes as a path from root to tree-node or join operations performed to build the object. Referential identity is not important; ColKeys should be compared by value."
@@ -43,7 +73,10 @@ class ColKey:
         return list(self._path)
 
     def __eq__(self, other):
-        return isinstance(other, ColKey) and self._path == other._path
+        if isinstance(other, ColKey):
+            return self._path == other._path
+        else:
+            return self._path == other
 
     def __ne__(self, other):
         return not self.__eq__(other)
