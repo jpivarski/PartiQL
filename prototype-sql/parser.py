@@ -134,6 +134,9 @@ class Symbol(AST):
 class Block(AST):
     _fields = ("body",)
 
+class MacroBlock(AST):
+    _fields = ("body",)
+
 class Call(AST):
     _fields = ("function", "arguments")
 
@@ -176,7 +179,7 @@ def parse(source, debug=False):
             return None
 
         elif node.data == "macro":
-            macros[str(node.children[0])] = ([str(x) for x in node.children[1:-1]], Block(toast(node.children[-1], macros), source=source))
+            macros[str(node.children[0])] = ([str(x) for x in node.children[1:-1]], MacroBlock(toast(node.children[-1], macros), source=source))
             return None
 
         elif node.data == "symbol":
@@ -224,6 +227,12 @@ def parse(source, debug=False):
             else:
                 assert False
 
+        elif node.data == "assignment":
+            return Assignment(str(node.children[0]), toast(node.children[1], macros), line=node.children[0].line, source=source)
+
+        elif node.data == "block":
+            return Block(toast(node.children[0], macros), source=source)
+
         elif node.data == "histogram":
             return Histogram(toast(node.children[0], macros), None, None, None, source=source)
 
@@ -239,7 +248,7 @@ def parse(source, debug=False):
                     y = toast(x, macros)
                     if y is None:
                         pass
-                    elif isinstance(y, Block):
+                    elif isinstance(y, MacroBlock):
                         out.extend(y.body)
                     else:
                         out.append(y)
@@ -328,3 +337,20 @@ def test_expressions():
     assert parse(r"p or q and r") == [Call(Symbol("or"), [Symbol("p"), Call(Symbol("and"), [Symbol("q"), Symbol("r")])])]
     assert parse(r"(p or q) and r") == [Call(Symbol("and"), [Call(Symbol("or"), [Symbol("p"), Symbol("q")]), Symbol("r")])]
     assert parse(r"if x > 0 then 1 else -1") == [Call(Symbol("if"), [Call(Symbol(">"), [Symbol("x"), Literal(0)]), Literal(1), Call(Symbol("*-1"), [Literal(1)])])]
+
+def test_assign():
+    assert parse(r"""
+x = 5
+x + 2
+""") == [Assignment("x", Literal(5)), Call(Symbol("+"), [Symbol("x"), Literal(2)])]
+    assert parse(r"""{
+x = 5
+x + 2
+}""") == [Block([Assignment("x", Literal(5)), Call(Symbol("+"), [Symbol("x"), Literal(2)])])]
+    assert parse(r"""
+y = {
+    x = 5
+    x + 2
+    }
+y""") == [Assignment("y", Block([Assignment("x", Literal(5)), Call(Symbol("+"), [Symbol("x"), Literal(2)])])), Symbol("y")]
+    assert parse(r"{x + 2}") == [Block([Call(Symbol("+"), [Symbol("x"), Literal(2)])])]
