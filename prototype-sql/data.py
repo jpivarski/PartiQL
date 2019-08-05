@@ -2,6 +2,8 @@
 #
 # PLUR types: Primitive, List, Union, Record
 
+import key
+
 class Array:
     def __iter__(self):
         for i in range(len(self)):
@@ -26,8 +28,8 @@ class Array:
         return not self.__eq__(other)
 
     def setkey(self, row=None, col=None):
-        self._row = [(i,) for i in range(len(self))] if row is None else row
-        self._col = () if col is None else col
+        self._row = key.RowKey([(i,) for i in range(len(self))]) if row is None else row
+        self._col = key.ColKey() if col is None else col
 
 class PrimitiveArray(Array):
     def __init__(self, data):
@@ -70,7 +72,7 @@ class ListArray(Array):
         for i, r in enumerate(self._row):
             for j in range(self._stops[i] - self._starts[i]):
                 subrow[self._starts[i] + j] = r + (j,)
-        self._content.setkey(subrow, col)
+        self._content.setkey(key.RowKey(subrow), col)
 
 class UnionArray(Array):
     def __init__(self, tags, index, contents):
@@ -95,7 +97,7 @@ class UnionArray(Array):
         for i, r in enumerate(self._row):
             subrows[self._tags[i]][self._index[i]] = r
         for subrow, x in zip(subrows, self._contents):
-            x.setkey(subrow, col)
+            x.setkey(key.RowKey(subrow), col)
 
 class RecordArray(Array):
     def __init__(self, contents):
@@ -121,7 +123,7 @@ class RecordArray(Array):
     def setkey(self, row=None, col=None):
         super(RecordArray, self).setkey(row, col)
         for n, x in self._contents.items():
-            x.setkey(self._row, (n,) if col is None else col + (n,))
+            x.setkey(self._row, key.ColKey(n) if col is None else col.withattr(n))
 
 ################################################################################
 
@@ -203,13 +205,13 @@ def test_data():
     events.setkey()
 
     muonpt = events._contents["muons"]._content._contents["pt"]
-    assert muonpt._row == [(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)]
-    assert muonpt._col == ('muons', 'pt')
+    assert muonpt._row == key.RowKey([(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)])
+    assert muonpt._col == key.ColKey("muons", "pt")
 
     muoniso = events._contents["muons"]._content._contents["iso"]
     assert muonpt._row == muoniso._row
     assert muonpt._row is muoniso._row
 
-    c1, c2 = muonpt._col
+    c1, c2 = muonpt._col.tolist()
     for i, (r1, r2) in enumerate(muonpt._row):
         assert events[c1][c2][r1][r2] == muonpt[i]
