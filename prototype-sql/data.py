@@ -68,7 +68,7 @@ class ListArray(Array):
 
     def setkey(self, row=None, col=None):
         super(ListArray, self).setkey(row, col)
-        subrow = [-1] * len(self._content)
+        subrow = [None] * len(self._content)
         for i, r in enumerate(self._row):
             for j in range(self._stops[i] - self._starts[i]):
                 subrow[self._starts[i] + j] = r + (j,)
@@ -93,7 +93,7 @@ class UnionArray(Array):
 
     def setkey(self, row=None, col=None):
         super(UnionArray, self).setkey(row, col)
-        subrows = [[-1] * len(x) for x in self._contents]
+        subrows = [[None] * len(x) for x in self._contents]
         for i, r in enumerate(self._row):
             subrows[self._tags[i]][self._index[i]] = r
         for subrow, x in zip(subrows, self._contents):
@@ -215,3 +215,32 @@ def test_data():
     c1, c2 = muonpt._col.tolist()
     for i, (r1, r2) in enumerate(muonpt._row):
         assert events[c1][c2][r1][r2] == muonpt[i]
+
+    egamma = UnionArray([0, 0, 1, 0, 1, 1, 1, 0, 0], [0, 1, 0, 2, 1, 2, 3, 3, 4], [
+        RecordArray({
+            "q": PrimitiveArray([1, -1, -1, 1, 1]),
+            "pt": PrimitiveArray([10, 20, 30, 40, 50])
+        }),
+        RecordArray({
+            "pt": PrimitiveArray([1.1, 2.2, 3.3, 4.4])
+        })
+    ])
+
+    assert egamma == [
+        {'pt': 10, 'q': 1},
+        {'pt': 20, 'q': -1},
+        {'pt': 1.1},
+        {'pt': 30, 'q': -1},
+        {'pt': 2.2},
+        {'pt': 3.3},
+        {'pt': 4.4},
+        {'pt': 40, 'q': 1},
+        {'pt': 50, 'q': 1}]
+
+    assert egamma["pt"] == [10, 20, 1.1, 30, 2.2, 3.3, 4.4, 40, 50]
+
+    egamma.setkey()
+    assert egamma._contents[0]._contents["pt"]._row == key.RowKey([(0,), (1,), (3,), (7,), (8,)])
+    assert egamma._contents[1]._contents["pt"]._row == key.RowKey([(2,), (4,), (5,), (6,)])
+    assert egamma._contents[0]._contents["pt"]._col == key.ColKey("pt")
+    assert egamma._contents[1]._contents["pt"]._col == key.ColKey("pt")
