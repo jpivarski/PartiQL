@@ -6,17 +6,17 @@ class LanguageError(Exception):
     def __init__(self, message, line=None, source=None):
         self.message, self.line = message, line
         if line is not None:
-            message = "Line {0}: {1}".format(line, message)
+            message = "line {0}: {1}".format(line, message)
             if source is not None:
-                context = source.split("\n")[line - 2 : line]
+                context = source.split("\n")[line - 2 : line + 1]
                 if line == 1:
-                    context[0]  = "{0:>3d} --> {1}".format(line, context[0])
-                    context[1:] = ["{0:>3d}     {1}".format(line + 1 + i, x) for i, x in enumerate(context[1:])]
+                    context[0]  = "{0:>4d} --> {1}".format(line, context[0])
+                    context[1:] = ["{0:>4d}     {1}".format(line + 1 + i, x) for i, x in enumerate(context[1:])]
                 else:
-                    context[0]  = "{0:>3d}     {1}".format(line - 1, context[0])
-                    context[1]  = "{0:>3d} --> {1}".format(line, context[1])
-                    context[2:] = ["{0:>3d}     {1}".format(line + 1 + i, x) for i, x in enumerate(context[2:])]
-                message = message + "\n" + "\n".join(context)
+                    context[0]  = "{0:>4d}     {1}".format(line - 1, context[0])
+                    context[1]  = "{0:>4d} --> {1}".format(line, context[1])
+                    context[2:] = ["{0:>4d}     {1}".format(line + 1 + i, x) for i, x in enumerate(context[2:])]
+                message = message + "\nline\n" + "\n".join(context)
         super(LanguageError, self).__init__(message)
 
 grammar = r"""
@@ -259,17 +259,8 @@ x""") == [Symbol("x")]
                         comment */
 x""") == [Symbol("x")]
 
-    parse(r"""
-def whatever(x) {
-    hist x
-}
-whatever()
-""")
-
 def test_expressions():
     assert parse(r"x") == [Symbol("x")]
     assert parse(r"1") == [Literal(1)]
     assert parse(r"3.14") == [Literal(3.14)]
     assert parse(r'"hello"') == [Literal("hello")]
-
-test_whitespace()
