@@ -44,16 +44,19 @@ weight:     "weight" "by" expression
 axes:       axis ("," axis)*
 axis:       expression ["by" expression]
 
-expression: branch | groupby
+expression: scalar | tabular
 
-groupby:    fields | fields "group" "by" where
-fields:     where  | where "{" blockitems "}"
-where:      union  | union "where" branch
-union:      cross  | cross "union" cross
-cross:      join   | join "cross" join
-join:       choose | choose "join" choose
-choose:     branch | namelist "from" branch
+tabular:    minmaxby
+minmaxby:   groupby | groupby "min" "by" scalar -> minby | groupby "max" "by" scalar -> maxby
+groupby:    fields  | fields "group" "by" where
+fields:     where   | where "{" blockitems "}"
+where:      union   | union "where" scalar
+union:      cross   | cross "union" cross
+cross:      join    | join "cross" join
+join:       choose  | choose "join" choose
+choose:     scalar  | namelist "from" scalar
 
+scalar:     branch
 branch:     or         | "if" or "then" or "else" or
 or:         and        | and "or" and
 and:        not        | not "and" not
@@ -178,7 +181,10 @@ class TableBlock(Expression):
                 raise LanguageError("every item in a block defining a table (curly braces after a table definitino) must be an assignment or a histogram", x.line, self.source, None)
 
 class GroupBy(Expression):
-    _fields = ("table", "groupby")
+    _fields = ("table", "quantifier")
+
+class MinMaxBy(Expression):
+    _fields = ("table", "ismin", "quantifier")
 
 class Assignment(BlockItem):
     _fields = ("symbol", "expression")
@@ -313,6 +319,12 @@ def parse(source):
         elif node.data == "groupby" and len(node.children) == 2:
             return GroupBy(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
 
+        elif node.data == "minby" and len(node.children) == 2:
+            return MinMaxBy(toast(node.children[0], macros, defining), True, toast(node.children[1], macros, defining), source=source)
+
+        elif node.data == "maxby" and len(node.children) == 2:
+            return MinMaxBy(toast(node.children[0], macros, defining), False, toast(node.children[1], macros, defining), source=source)
+
         elif node.data == "assignment":
             return Assignment(str(node.children[0]), toast(node.children[1], macros, defining), line=node.children[0].line, source=source)
 
@@ -347,7 +359,7 @@ def parse(source):
             weight, named, titled = getattributes(node.children[1:-1], source, macros, defining)
             return Cut(toast(node.children[0], macros, defining), weight, named, titled, toast(node.children[-1], macros, defining), source=source)
 
-        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "groupby", "fields", "where", "union", "cross", "join", "choose", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
+        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "fields", "where", "union", "cross", "join", "choose", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             out = toast(node.children[0], macros, defining)
             if isinstance(out, MacroBlock) and len(out.body) == 1:
                 return out.body[0]
@@ -508,6 +520,9 @@ def test_table():
     assert parse(r"x from table where x > 0 group by table") == [GroupBy(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), Symbol("table"))]
     assert parse(r"x from table {y = x} group by table") == [GroupBy(TableBlock(Choose(["x"], Symbol("table")), [Assignment("y", Symbol("x"))]), Symbol("table"))]
     assert parse(r"x from table where x > 0 {y = x} group by table") == [GroupBy(TableBlock(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), [Assignment("y", Symbol("x"))]), Symbol("table"))]
+    assert parse(r"x from table min by x") == [MinMaxBy(Choose(["x"], Symbol("table")), True, Symbol("x"))]
+    assert parse(r"x from table max by x") == [MinMaxBy(Choose(["x"], Symbol("table")), False, Symbol("x"))]
+    assert parse(r"x from table group by table min by x") == [MinMaxBy(GroupBy(Choose(["x"], Symbol("table")), Symbol("table")), True, Symbol("x"))]
     parse.debugging = False
 
 def test_histogram():
@@ -661,20 +676,19 @@ def f(y) {
 f(x)
 """) == [Histogram([Axis(Symbol("x"), None)], None, None, None)]
 
-# def test_benchmark8():
-#     # https://github.com/iris-hep/adl-benchmarks-index/
-#     parse(r"""
-# leptons = electrons union muons
-#
-# cut count(leptons) >= 3 {
-#     pair = one, two from electrons union
-#            one, two from muons
-#            where one.q != two.q
-#            min by abs(mass(one, two) - 91.2)
-#
-#     third = third in leptons where third != pair.one and third != pair.two max by third.pt
-#
-#     hist met      by regular(100, 0, 150) titled "transverse mass of the missing energy"
-#     hist third.pt by regular(100, 0, 150) titled "third lepton pt"
-# }
-# """)
+def test_benchmark8():
+    # https://github.com/iris-hep/adl-benchmarks-index/
+    parse(r"""
+leptons = electrons union muons
+
+cut count(leptons) >= 3 {
+    pair = (one, two) from electrons union (one, two) from muons
+           where one.q != two.q
+           min by abs(mass(one, two) - 91.2)
+
+    third = x in leptons where x != pair.one and x != pair.two max by x.pt
+
+    hist met      by regular(100, 0, 150) titled "transverse mass of the missing energy"
+    hist third.pt by regular(100, 0, 150) titled "third lepton pt"
+}
+""")
