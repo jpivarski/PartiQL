@@ -236,6 +236,10 @@ def parse(source, debug=False):
         elif node.data == "namelist":
             return [str(x) for x in node.children]
 
+        elif node.data in ("join", "cross", "union", "where") and len(node.children) == 2:
+            assert isinstance(node.data, str)  # FIXME
+            return Call(Symbol(node.data), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
+
         elif node.data == "assignment":
             return Assignment(str(node.children[0]), toast(node.children[1], macros, defining), line=node.children[0].line, source=source)
 
@@ -370,3 +374,4 @@ def test_table():
     assert parse(r"(x, y) from table") == [Choose(["x", "y"], Symbol("table"))]
     assert parse(r"f((x, y) from table)") == [Call(Symbol("f"), [Choose(["x", "y"], Symbol("table"))])]
     assert parse(r"f(x, y from table)") == [Call(Symbol("f"), [Symbol("x"), Choose(["y"], Symbol("table"))])]
+    assert parse(r"x from X join y from Y") == None  # FIXME
