@@ -26,8 +26,8 @@ start:       NEWLINE? (statement  (NEWLINE | ";"+))* statement? NEWLINE? ";"*  N
 statements:  NEWLINE? (statement  (NEWLINE | ";"+))* statement NEWLINE? ";"*  NEWLINE?
 blockitems:  NEWLINE? (blockitem  (NEWLINE | ";"+))* blockitem  NEWLINE?
 assignments: NEWLINE? (assignment (NEWLINE | ";"+))* assignment NEWLINE?
-statement:   expression | assignment | histogram | vary | cut | macro
-blockitem:   expression | assignment | histogram
+statement:   macro | expression | assignment | histogram | vary | cut
+blockitem:   macro | expression | assignment | histogram
 
 macro:       "def" CNAME "(" [CNAME ("," CNAME)*] ")" "{" statements "}"
 assignment:  CNAME "=" expression
@@ -308,7 +308,13 @@ def parse(source, debug=False):
             return Cut(toast(node.children[0], macros, defining), weight, named, toast(node.children[-1], macros, defining), source=source)
 
         elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "groupby", "fields", "where", "union", "cross", "join", "choose", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
-            return toast(node.children[0], macros, defining)
+            out = toast(node.children[0], macros, defining)
+            if isinstance(out, MacroBlock) and len(out.body) == 1:
+                return out.body[0]
+            elif isinstance(out, MacroBlock):
+                return Block(out.body, line=out.line, source=source)
+            else:
+                return out
 
         elif node.data in ("start", "statements", "blockitems", "assignments"):
             if node.data == "statements":
@@ -504,6 +510,11 @@ vary by {epsilon = 0} {
 }
 """) == [Vary([Trial([Assignment("epsilon", Literal(0))], None)], [Histogram([Axis(Symbol("epsilon"), None)], None, None)])]
     assert parse(r"""
+vary by {x = 0; y = 0} {
+    hist x + y
+}
+""") == [Vary([Trial([Assignment("x", Literal(0)), Assignment("y", Literal(0))], None)], [Histogram([Axis(Call(Symbol("+"), [Symbol("x"), Symbol("y")]), None)], None, None)])]
+    assert parse(r"""
 vary by {epsilon = 0} named "hello" {
     hist epsilon
 }
@@ -539,3 +550,24 @@ vary by {epsilon = 0} {
     }
 }
 """) == [Vary([Trial([Assignment("epsilon", Literal(0))], None)], [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), None, None, [Histogram([Axis(Symbol("epsilon"), None)], None, None)])])]
+
+def test_macro():
+    "Macros haven't been fully tested, but I'll leave that for later."
+    assert parse(r"""
+def f() {
+    x
+}
+hist f()
+""") == [Histogram([Axis(Symbol("x"), None)], None, None)]
+    assert parse(r"""
+def f() {
+    hist x
+}
+f()
+""") == [Histogram([Axis(Symbol("x"), None)], None, None)]
+    assert parse(r"""
+def f(y) {
+    hist y
+}
+f(x)
+""") == [Histogram([Axis(Symbol("x"), None)], None, None)]
