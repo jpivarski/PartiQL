@@ -48,7 +48,7 @@ where:      union  | union "where" branch
 union:      cross  | cross "union" cross
 cross:      join   | join "cross" join
 join:       choose | choose "join" choose
-choose:     namelist "from" branch
+choose:     branch | namelist "from" branch
 
 branch:     or         | "if" or "then" or "else" or
 or:         and        | and "or" and
@@ -122,7 +122,7 @@ class AST:
                 return x.replace(replacements)
             else:
                 return x
-        return type(self)(*[do(getattr(self, n)) for n in self._fields], line=self.line)
+        return type(self)(*[do(getattr(self, n)) for n in self._fields], line=self.line, source=self.source)
 
 class Literal(AST):
     _fields = ("value",)
@@ -150,6 +150,12 @@ class GetAttr(AST):
 
 class Choose(AST):
     _fields = ("symbols", "table")
+
+class TableBlock(AST):
+    _fields = ("table", "block")
+
+class GroupBy(AST):
+    _fields = ("table", "groupby")
 
 class Assignment(AST):
     _fields = ("symbol", "expression")
@@ -186,7 +192,7 @@ def parse(source, debug=False):
             return None
 
         elif node.data == "symbol":
-            if str(node.children[0]) in macros:
+            if str(node.children[0]) in macros or str(node.children[0]) == defining:
                 raise LanguageError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source, defining)
             return Symbol(str(node.children[0]), line=node.children[0].line, source=source)
         elif node.data == "int":
@@ -230,15 +236,20 @@ def parse(source, debug=False):
             else:
                 assert False
 
-        elif node.data == "choose":
+        elif node.data == "choose" and len(node.children) == 2:
             return Choose(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
 
         elif node.data == "namelist":
             return [str(x) for x in node.children]
 
         elif node.data in ("join", "cross", "union", "where") and len(node.children) == 2:
-            assert isinstance(node.data, str)  # FIXME
             return Call(Symbol(node.data), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
+
+        elif node.data == "fields" and len(node.children) == 2:
+            return TableBlock(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
+
+        elif node.data == "groupby" and len(node.children) == 2:
+            return GroupBy(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
 
         elif node.data == "assignment":
             return Assignment(str(node.children[0]), toast(node.children[1], macros, defining), line=node.children[0].line, source=source)
@@ -374,4 +385,18 @@ def test_table():
     assert parse(r"(x, y) from table") == [Choose(["x", "y"], Symbol("table"))]
     assert parse(r"f((x, y) from table)") == [Call(Symbol("f"), [Choose(["x", "y"], Symbol("table"))])]
     assert parse(r"f(x, y from table)") == [Call(Symbol("f"), [Symbol("x"), Choose(["y"], Symbol("table"))])]
-    assert parse(r"x from X join y from Y") == None  # FIXME
+    assert parse(r"x from X join y from Y") == [Call(Symbol("join"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))])]
+    assert parse(r"x from X cross y from Y") == [Call(Symbol("cross"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))])]
+    assert parse(r"x from X union y from Y") == [Call(Symbol("union"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))])]
+    assert parse(r"x from X where x > 0") == [Call(Symbol("where"), [Choose(["x"], Symbol("X")), Call(Symbol(">"), [Symbol("x"), Literal(0)])])]
+    assert parse(r"x from X cross y from Y join z from Z") == [Call(Symbol("cross"), [Choose(["x"], Symbol("X")), Call(Symbol("join"), [Choose(["y"], Symbol("Y")), Choose(["z"], Symbol("Z"))])])]
+    assert parse(r"(x from X cross y from Y) join z from Z") == [Call(Symbol("join"), [Call(Symbol("cross"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))]), Choose(["z"], Symbol("Z"))])]
+    assert parse(r"x from X union y from Y cross z from Z") == [Call(Symbol("union"), [Choose(["x"], Symbol("X")), Call(Symbol("cross"), [Choose(["y"], Symbol("Y")), Choose(["z"], Symbol("Z"))])])]
+    assert parse(r"(x from X union y from Y) cross z from Z") == [Call(Symbol("cross"), [Call(Symbol("union"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))]), Choose(["z"], Symbol("Z"))])]
+    assert parse(r"(x from X where x > 0) union y from Y") == [Call(Symbol("union"), [Call(Symbol("where"), [Choose(["x"], Symbol("X")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), Choose(["y"], Symbol("Y"))])]
+    assert parse(r"x from table {y = x}") == [TableBlock(Choose(["x"], Symbol("table")), [Assignment("y", Symbol("x"))])]
+    assert parse(r"x from table where x > 0 {y = x}") == [TableBlock(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), [Assignment("y", Symbol("x"))])]
+    assert parse(r"x from table group by table") == [GroupBy(Choose(["x"], Symbol("table")), Symbol("table"))]
+    assert parse(r"x from table where x > 0 group by table") == [GroupBy(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), Symbol("table"))]
+    assert parse(r"x from table {y = x} group by table") == [GroupBy(TableBlock(Choose(["x"], Symbol("table")), [Assignment("y", Symbol("x"))]), Symbol("table"))]
+    assert parse(r"x from table where x > 0 {y = x} group by table") == [GroupBy(TableBlock(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), [Assignment("y", Symbol("x"))]), Symbol("table"))]
