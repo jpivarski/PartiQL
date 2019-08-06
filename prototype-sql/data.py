@@ -2,7 +2,7 @@
 #
 # PLUR types: Primitive, List, Union, Record
 
-import key
+import index
 
 class Array:
     "Abstract base class."
@@ -32,9 +32,9 @@ class Array:
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def setkey(self, row=None, col=None):
-        self._row = key.RowKey([(i,) for i in range(len(self))]) if row is None else row
-        self._col = key.ColKey() if col is None else col
+    def setindex(self, row=None, col=None):
+        self._row = index.RowIndex([(i,) for i in range(len(self))]) if row is None else row
+        self._col = index.ColIndex() if col is None else col
 
 class PrimitiveArray(Array):
     "Array of fixed-bytewidth objects: booleans, numbers, etc."
@@ -75,40 +75,40 @@ class ListArray(Array):
     def __len__(self):
         return len(self._starts)
 
-    def setkey(self, row=None, col=None):
-        super(ListArray, self).setkey(row, col)
+    def setindex(self, row=None, col=None):
+        super(ListArray, self).setindex(row, col)
         subrow = [None] * len(self._content)
         for i, r in enumerate(self._row):
             for j in range(self._stops[i] - self._starts[i]):
                 subrow[self._starts[i] + j] = r + (j,)
-        self._content.setkey(key.RowKey(subrow), col)
+        self._content.setindex(index.RowIndex(subrow), col)
 
 class UnionArray(Array):
     "Array of possibly multiple types (a.k.a. tagged union/sum type)."
 
-    def __init__(self, tags, index, contents, row=None, col=None):
-        self._tags, self._index, self._contents, self._row, self._col = tags, index, contents, row, col
+    def __init__(self, tags, offsets, contents, row=None, col=None):
+        self._tags, self._offsets, self._contents, self._row, self._col = tags, offsets, contents, row, col
 
     def __getitem__(self, where):
         if isinstance(where, str):
-            return UnionArray(self._tags, self._index, [x[where] for x in self._contents], self._row, None if self._col is None else self._col[1:])
+            return UnionArray(self._tags, self._offsets, [x[where] for x in self._contents], self._row, None if self._col is None else self._col[1:])
         elif isinstance(where, slice):
-            return UnionArray(self._tags[where], self._index[where], self._contents, None if self._row is None else self._row[where], self._col)
+            return UnionArray(self._tags[where], self._offsets[where], self._contents, None if self._row is None else self._row[where], self._col)
         elif isinstance(where, int):
-            return self._contents[self._tags[where]][self._index[where]]
+            return self._contents[self._tags[where]][self._offsets[where]]
         else:
             raise TypeError("UnionArray cannot be selected with {0}".format(where))
 
     def __len__(self):
         return len(self._tags)
 
-    def setkey(self, row=None, col=None):
-        super(UnionArray, self).setkey(row, col)
+    def setindex(self, row=None, col=None):
+        super(UnionArray, self).setindex(row, col)
         subrows = [[None] * len(x) for x in self._contents]
         for i, r in enumerate(self._row):
-            subrows[self._tags[i]][self._index[i]] = r
+            subrows[self._tags[i]][self._offsets[i]] = r
         for subrow, x in zip(subrows, self._contents):
-            x.setkey(key.RowKey(subrow), col)
+            x.setindex(index.RowIndex(subrow), col)
 
 class RecordArray(Array):
     "Array of record objects (a.k.a. Table, array of structs/product type)."
@@ -133,10 +133,10 @@ class RecordArray(Array):
         contents = {n: x.tolist() for n, x in self._contents.items()}
         return [{n: x[i] for n, x in contents.items()} for i in range(len(self))]
 
-    def setkey(self, row=None, col=None):
-        super(RecordArray, self).setkey(row, col)
+    def setindex(self, row=None, col=None):
+        super(RecordArray, self).setindex(row, col)
         for n, x in self._contents.items():
-            x.setkey(self._row, key.ColKey(n) if col is None else col.withattr(n))
+            x.setindex(self._row, index.ColIndex(n) if col is None else col.withattr(n))
 
 class Instance:
     _name = "Value"
@@ -185,7 +185,7 @@ def instantiate(data):
         elif isinstance(array, ListArray):
             return ListInstance([recurse(array._content, j) for j in range(array._starts[i], array._stops[i])], array._row[i], array._col)
         elif isinstance(array, UnionArray):
-            return recurse(array._contents[array._tags[i]], array._index[i])
+            return recurse(array._contents[array._tags[i]], array._offsets[i])
         elif isinstance(array, RecordArray):
             return RecordInstance({n: recurse(x, i) for n, x in array._contents.items()}, array._row[i], array._col)
         else:
@@ -269,7 +269,7 @@ def test_data():
     assert events["muons"][0]["pt"][2] == events["muons"][0][2]["pt"]
     assert events["muons"][0]["pt"][2] == events["muons"]["pt"][0][2]
 
-    events.setkey()
+    events.setindex()
 
     muonpt = events._contents["muons"]._content._contents["pt"]
     assert muonpt._row == [(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)]
@@ -308,7 +308,7 @@ def test_data():
 
     assert egamma["pt"] == [10, 20, 1.1, 30, 2.2, 3.3, 4.4, 40, 50]
 
-    egamma.setkey()
+    egamma.setindex()
     assert egamma._contents[0]._contents["pt"]._row == [(0,), (1,), (3,), (7,), (8,)]
     assert egamma._contents[1]._contents["pt"]._row == [(2,), (4,), (5,), (6,)]
     assert egamma._contents[0]._contents["pt"]._col == ("pt",)
