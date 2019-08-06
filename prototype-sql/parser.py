@@ -613,3 +613,21 @@ def f(y) {
 }
 f(x)
 """) == [Histogram([Axis(Symbol("x"), None)], None, None)]
+
+def test_benchmark8():
+    # https://github.com/iris-hep/adl-benchmarks-index/
+    parse(r"""
+leptons = electrons union muons
+
+cut count(leptons) >= 3 {
+    pair = one, two from electrons union
+           one, two from muons
+           where one.q != two.q
+           min by abs(mass(one, two) - 91.2)
+
+    third = third in leptons where third != pair.one and third != pair.two max by third.pt
+
+    hist met      by regular(100, 0, 150) titled "transverse mass of the missing energy"
+    hist third.pt by regular(100, 0, 150) titled "third lepton pt"
+}
+""")
