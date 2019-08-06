@@ -34,11 +34,13 @@ assignment:  CNAME "=" expression
 
 cut:        "cut" expression weight? named? "{" statements "}"
 vary:       "vary" trial+ "{" statements "}"
-histogram:  "hist" expression ("by" arglist)* weight? named?
+histogram:  "hist" axes weight? named?
 
 trial:  "by" "{" assignments "}"
 named:  "named" expression
 weight: "weight" "by" expression
+axes:   axis ("," axis)*
+axis:   expression ["by" expression]
 
 expression: branch | groupby
 
@@ -124,52 +126,56 @@ class AST:
                 return x
         return type(self)(*[do(getattr(self, n)) for n in self._fields], line=self.line, source=self.source)
 
-class Literal(AST):
+class Statement(AST): pass
+class BlockItem(Statement): pass
+class Expression(BlockItem): pass
+
+class Literal(Expression):
     _fields = ("value",)
 
-class Symbol(AST):
+class Symbol(Expression):
     _fields = ("symbol",)
 
     def replace(self, replacements):
         return replacements.get(self.symbol, self)
 
-class Block(AST):
+class Block(Expression):
     _fields = ("body",)
 
-class MacroBlock(AST):
-    _fields = ("body",)
-
-class Call(AST):
+class Call(Expression):
     _fields = ("function", "arguments")
 
-class GetItem(AST):
+class GetItem(Expression):
     _fields = ("container", "where")
 
-class GetAttr(AST):
+class GetAttr(Expression):
     _fields = ("object", "field")
 
-class Choose(AST):
+class Choose(Expression):
     _fields = ("symbols", "table")
 
-class TableBlock(AST):
+class TableBlock(Expression):
     _fields = ("table", "block")
 
-class GroupBy(AST):
+class GroupBy(Expression):
     _fields = ("table", "groupby")
 
-class Assignment(AST):
+class Assignment(BlockItem):
     _fields = ("symbol", "expression")
 
-class Histogram(AST):
-    _fields = ("expression", "binning", "weight", "named")
+class Histogram(BlockItem):
+    _fields = ("axes", "weight", "named")
 
-class Vary(AST):
+class Axis(AST):
+    _fields = ("expression", "binning")
+
+class Vary(Statement):
     _fields = ("trials", "statements")
 
-class Cut(AST):
+class Cut(Statement):
     _fields = ("expression", "weight", "named", "statements")
 
-class Macro(AST):
+class Macro(Statement):
     _fields = ("parameters", "body")
 
 def parse(source, debug=False):
@@ -181,6 +187,9 @@ def parse(source, debug=False):
               "pos": "*1", "neg": "*-1",
               "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in",
               "and": "and", "or": "or", "isnot": "not"}
+
+    class MacroBlock(AST):
+        _fields = ("body",)
 
     def toast(node, macros, defining):
         if isinstance(node, lark.Token):
@@ -258,7 +267,23 @@ def parse(source, debug=False):
             return Block(toast(node.children[0], macros, defining), source=source)
 
         elif node.data == "histogram":
-            return Histogram(toast(node.children[0], macros, defining), None, None, None, source=source)
+            weight, named = None, None
+            for x in node.children[1:]:
+                if x.data == "weight":
+                    weight = toast(x.children[0], macros, defining)
+                if x.data == "named":
+                    named = toast(x.children[0], macros, defining)
+            return Histogram(toast(node.children[0], macros, defining), weight, named, source=source)
+
+        elif node.data == "axes":
+            return [toast(x, macros, defining) for x in node.children]
+
+        elif node.data == "axis":
+            if len(node.children) == 1:
+                binning = None
+            else:
+                binning = toast(node.children[1], macros, defining)
+            return Axis(toast(node.children[0], macros, defining), binning, source=source)
 
         elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "groupby", "fields", "where", "union", "cross", "join", "choose", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             return toast(node.children[0], macros, defining)
@@ -400,3 +425,17 @@ def test_table():
     assert parse(r"x from table where x > 0 group by table") == [GroupBy(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), Symbol("table"))]
     assert parse(r"x from table {y = x} group by table") == [GroupBy(TableBlock(Choose(["x"], Symbol("table")), [Assignment("y", Symbol("x"))]), Symbol("table"))]
     assert parse(r"x from table where x > 0 {y = x} group by table") == [GroupBy(TableBlock(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), [Assignment("y", Symbol("x"))]), Symbol("table"))]
+
+def test_histogram():
+    assert parse(r"hist pt") == [Histogram([Axis(Symbol("pt"), None)], None, None)]
+    assert parse(r"hist pt, eta") == [Histogram([Axis(Symbol("pt"), None), Axis(Symbol("eta"), None)], None, None)]
+    assert parse(r"hist pt by regular(100, 0, 150)") == [Histogram([Axis(Symbol("pt"), Call(Symbol("regular"), [Literal(100), Literal(0), Literal(150)]))], None, None)]
+    assert parse(r"hist pt by regular(100, 0, 150), eta by regular(100, -5, 5)") == [Histogram([Axis(Symbol("pt"), Call(Symbol("regular"), [Literal(100), Literal(0), Literal(150)])), Axis(Symbol("eta"), Call(Symbol("regular"), [Literal(100), Call(Symbol("*-1"), [Literal(5)]), Literal(5)]))], None, None)]
+    assert parse(r"hist pt weight by w") == [Histogram([Axis(Symbol("pt"), None)], Symbol("w"), None)]
+    assert parse(r"hist pt, eta weight by w") == [Histogram([Axis(Symbol("pt"), None), Axis(Symbol("eta"), None)], Symbol("w"), None)]
+    assert parse(r"hist pt by regular(100, 0, 150), eta weight by w") == [Histogram([Axis(Symbol("pt"), Call(Symbol("regular"), [Literal(100), Literal(0), Literal(150)])), Axis(Symbol("eta"), None)], Symbol("w"), None)]
+    assert parse(r'hist pt named "hello"') == [Histogram([Axis(Symbol("pt"), None)], None, Literal("hello"))]
+    assert parse(r'hist pt, eta named "hello"') == [Histogram([Axis(Symbol("pt"), None), Axis(Symbol("eta"), None)], None, Literal("hello"))]
+    assert parse(r'hist pt weight by w named "hello"') == [Histogram([Axis(Symbol("pt"), None)], Symbol("w"), Literal("hello"))]
+    assert parse(r'hist pt by regular(100, 0, 150) named "hello"') == [Histogram([Axis(Symbol("pt"), Call(Symbol("regular"), [Literal(100), Literal(0), Literal(150)]))], None, Literal("hello"))]
+    assert parse(r'hist pt by regular(100, 0, 150) weight by w named "hello"') == [Histogram([Axis(Symbol("pt"), Call(Symbol("regular"), [Literal(100), Literal(0), Literal(150)]))], Symbol("w"), Literal("hello"))]
