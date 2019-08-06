@@ -17,10 +17,10 @@ class RowKey:
         self._id = RowKey.newid() if id is None else id
 
     def __repr__(self):
-        return "<RowKey {0}: {1}>".format(self._id, self.tolist())
+        return "RowKey({0}, {1})".format(repr(self._array), self._id)
 
     def __str__(self):
-        return str(self.tolist())
+        return "#{0}({1})".format(self._id, " ".join(repr(x) for x in self._array))
 
     def tolist(self):
         return list(self._array)
@@ -43,7 +43,7 @@ class RowKey:
 
     def __getitem__(self, where):
         if isinstance(where, int):
-            return Item(self._id, self._array[where])
+            return RowItem(self._array[where], self._id)
         elif isinstance(where, slice):
             return RowKey(self._array[where], self._id)
         else:
@@ -59,6 +59,9 @@ class ColKey:
     def __repr__(self):
         return "ColKey({0})".format(", ".join(repr(x) for x in self._path))
 
+    def __str__(self):
+        return "({0})".format(" ".join(repr(x) for x in self._path))
+
     def tolist(self):
         return list(self._path)
 
@@ -73,7 +76,7 @@ class ColKey:
 
     def __getitem__(self, where):
         if isinstance(where, int):
-            return Item(self._path[where])
+            return ColItem(self._path[where])
         elif isinstance(where, slice):
             return ColKey(*self._path[where])
         else:
@@ -82,17 +85,38 @@ class ColKey:
     def withattr(self, attr):
         return ColKey(*(self._path + (attr,)))
 
-class Item:
-    "Item is an element of a RowKey or a ColKey, representing a unique object by reference."
+class RowItem:
+    "RowItem is an element of a RowKey, representing a unique row by reference."
 
-    def __init__(self, id, key):
-        self._id, self._key = id, key
+    def __init__(self, key, id):
+        self._key, self._id = key, id
 
     def __repr__(self):
-        return "<Item {0}: {1}>".format(self._id, self._key)
+        return "RowItem({0}, {1})".format(repr(self._key), self._id)
+
+    def __str__(self):
+        return "#{0}({1})".format(self._id, " ".join(repr(x) for x in self._key))
 
     def __eq__(self, other):
-        return isinstance(other, Item) and self._id == other._id and self._key == other._key
+        return isinstance(other, RowItem) and self._key == other._key and self._id == other._id
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+class ColItem:
+    "ColItem is an element of a ColKey, representing a unique column by value."
+
+    def __init__(self, key):
+        self._key = key
+
+    def __repr__(self):
+        return "ColItem({0})".format(repr(self._key))
+
+    def __str__(self):
+        return "({1})".format(" ".join(repr(x) for x in self._key))
+
+    def __eq__(self, other):
+        return isinstance(other, ColItem) and self._key == other._key
 
     def __ne__(self, other):
         return not self.__eq__(other)

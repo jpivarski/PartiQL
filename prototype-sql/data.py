@@ -139,11 +139,16 @@ class RecordArray(Array):
             x.setkey(self._row, key.ColKey(n) if col is None else col.withattr(n))
 
 class Instance:
+    _name = "Value"
+
     def __init__(self, value, row, col):
         self.value, self.row, self.col = value, row, col
 
+    def _repr(self):
+        return repr(self.value) if isinstance(self.value, str) else str(self.value)
+
     def __repr__(self):
-        return "<{0} at {1}, {2}: {3}>".format(type(self).__name__, self.row, self.col, self.value)
+        return "{0}{1}{2}{{ {3} }}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), self._repr())
 
     def same(self, other):
         return isinstance(other, Instance) and (self.row == other.row and self.col == other.col)
@@ -155,6 +160,8 @@ class Instance:
         return not self.__eq__(other)
 
 class ListInstance(Instance):
+    _name = "List"
+
     def __getitem__(self, where):
         return self.value[where]
 
@@ -163,33 +170,27 @@ class ListInstance(Instance):
             yield x
 
 class RecordInstance(Instance):
+    _name = "Rec"
+
+    def _repr(self):
+        return ", ".join(str(x) for x in self.value.values())
+
     def __getitem__(self, where):
         return self.value[where]
 
 def instantiate(data):
-    def recurse(array, start, stop):
+    def recurse(array, i):
         if isinstance(array, PrimitiveArray):
-            if stop is None:
-                return Instance(array._data[start], array._row[start], array._col)
-            else:
-                return ListInstance([recurse(array, i, None) for i in range(start, stop)], array._row[start:stop], array._col)
-
+            return Instance(array._data[i], array._row[i], array._col)
         elif isinstance(array, ListArray):
-            if stop is None:
-                return recurse(array._content, array._starts[start], array._stops[start])
-            else:
-                return ListInstance([recurse(array._content, array._starts[i], array._stops[i]) for i in range(start, stop)], array._row[start:stop], array._col)
-
+            return ListInstance([recurse(array._content, j) for j in range(array._starts[i], array._stops[i])], array._row[i], array._col)
         elif isinstance(array, UnionArray):
-            raise NotImplementedError
-
+            return recurse(array._contents[array._tags[i]], array._index[i])
         elif isinstance(array, RecordArray):
-            if stop is None:
-                return RecordInstance({n: recurse(x, start, stop) for n, x in array._contents.items()}, array._row[start], array._col)
-            else:
-                return ListInstance([recurse(array, i, None) for i in range(start, stop)], array._row[start:stop], array._col)
-
-    return ListInstance([recurse(data, i, None) for i in range(len(data))], None, None)
+            return RecordInstance({n: recurse(x, i) for n, x in array._contents.items()}, array._row[i], array._col)
+        else:
+            raise NotImplementedError
+    return ListInstance([recurse(data, i) for i in range(len(data))], None, None)
 
 ################################################################################ tests
 
@@ -282,6 +283,8 @@ def test_data():
     for i, (r1, r2) in enumerate(muonpt._row):
         assert events[c1][c2][r1][r2] == muonpt[i]
 
+    instantiate(events)
+
     egamma = UnionArray([0, 0, 1, 0, 1, 1, 1, 0, 0], [0, 1, 0, 2, 1, 2, 3, 3, 4], [
         RecordArray({
             "q": PrimitiveArray([1, -1, -1, 1, 1]),
@@ -310,3 +313,5 @@ def test_data():
     assert egamma._contents[1]._contents["pt"]._row == [(2,), (4,), (5,), (6,)]
     assert egamma._contents[0]._contents["pt"]._col == ("pt",)
     assert egamma._contents[1]._contents["pt"]._col == ("pt",)
+
+    instantiate(egamma)
