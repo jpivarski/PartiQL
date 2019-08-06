@@ -683,7 +683,7 @@ leptons = electrons union muons
 
 cut count(leptons) >= 3 {
     pair = (one, two) from electrons union (one, two) from muons
-           where one.q != two.q
+           where one.charge != two.charge
            min by abs(mass(one, two) - 91.2)
 
     third = x in leptons where x != pair.one and x != pair.two max by x.pt

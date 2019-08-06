@@ -11,10 +11,10 @@ class RowKey:
 
     numids = 0
 
-    def __init__(self, array):
+    def __init__(self, array, id=None):
         "In this prototype, 'array' is a list of equal-length tuples."
         self._array = array
-        self._id = RowKey.newid()
+        self._id = RowKey.newid() if id is None else id
 
     def __repr__(self):
         return "<RowKey {0}: {1}>".format(self._id, self.tolist())
@@ -42,22 +42,12 @@ class RowKey:
             yield x
 
     def __getitem__(self, where):
-        return RowInstance(self._id, self._array[where])
-
-class RowInstance:
-    "RowInstance is an element of a RowKey, representing a unique object by reference."
-
-    def __init__(self, id, key):
-        self._id, self._key = id, key
-
-    def __repr__(self):
-        return "<RowInstance {0}: {1}>".format(self._id, self._key)
-
-    def __eq__(self, other):
-        return isinstance(other, RowInstance) and self._id == other._id and self._key == other._key
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
+        if isinstance(where, int):
+            return Item(self._id, self._array[where])
+        elif isinstance(where, slice):
+            return RowKey(self._array[where], self._id)
+        else:
+            raise NotImplementedError(where)
 
 class ColKey:
     "ColKey is AST-like, specifying the sequence of string indexes as a path from root to tree-node or join operations performed to build the object. Referential identity is not important; ColKeys should be compared by value."
@@ -81,5 +71,28 @@ class ColKey:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __getitem__(self, where):
+        if isinstance(where, int):
+            return Item(self._path[where])
+        elif isinstance(where, slice):
+            return ColKey(*self._path[where])
+        else:
+            raise NotImplementedError(where)
+
     def withattr(self, attr):
         return ColKey(*(self._path + (attr,)))
+
+class Item:
+    "Item is an element of a RowKey or a ColKey, representing a unique object by reference."
+
+    def __init__(self, id, key):
+        self._id, self._key = id, key
+
+    def __repr__(self):
+        return "<Item {0}: {1}>".format(self._id, self._key)
+
+    def __eq__(self, other):
+        return isinstance(other, Item) and self._id == other._id and self._key == other._key
+
+    def __ne__(self, other):
+        return not self.__eq__(other)

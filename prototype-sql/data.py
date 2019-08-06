@@ -39,12 +39,12 @@ class Array:
 class PrimitiveArray(Array):
     "Array of fixed-bytewidth objects: booleans, numbers, etc."
 
-    def __init__(self, data):
-        self._data = data
+    def __init__(self, data, row=None, col=None):
+        self._data, self._row, self._col = data, row, col
 
     def __getitem__(self, where):
         if isinstance(where, slice):
-            return PrimitiveArray(self._data[where])
+            return PrimitiveArray(self._data[where], None if self._row is None else self._row[where], self._col)
         elif isinstance(where, int):
             return self._data[where]
         else:
@@ -59,14 +59,14 @@ class PrimitiveArray(Array):
 class ListArray(Array):
     "Array of variable-length but single-type lists (a.k.a. JaggedArray)."
 
-    def __init__(self, starts, stops, content):
-        self._starts, self._stops, self._content = starts, stops, content
+    def __init__(self, starts, stops, content, row=None, col=None):
+        self._starts, self._stops, self._content, self._row, self._col = starts, stops, content, row, col
 
     def __getitem__(self, where):
         if isinstance(where, str):
-            return ListArray(self._starts, self._stops, self._content[where])
+            return ListArray(self._starts, self._stops, self._content[where], self._row, None if self._col is None else self._col[1:])
         elif isinstance(where, slice):
-            return ListArray(self._starts[where], self._stops[where], self._content)
+            return ListArray(self._starts[where], self._stops[where], self._content, None if self._row is None else self._row[where], self._col)
         elif isinstance(where, int):
             return self._content[self._starts[where]:self._stops[where]]
         else:
@@ -86,14 +86,14 @@ class ListArray(Array):
 class UnionArray(Array):
     "Array of possibly multiple types (a.k.a. tagged union/sum type)."
 
-    def __init__(self, tags, index, contents):
-        self._tags, self._index, self._contents = tags, index, contents
+    def __init__(self, tags, index, contents, row=None, col=None):
+        self._tags, self._index, self._contents, self._row, self._col = tags, index, contents, row, col
 
     def __getitem__(self, where):
         if isinstance(where, str):
-            return UnionArray(self._tags, self._index, [x[where] for x in self._contents])
+            return UnionArray(self._tags, self._index, [x[where] for x in self._contents], self._row, None if self._col is None else self._col[1:])
         elif isinstance(where, slice):
-            return UnionArray(self._tags[where], self._index[where], self._contents)
+            return UnionArray(self._tags[where], self._index[where], self._contents, None if self._row is None else self._row[where], self._col)
         elif isinstance(where, int):
             return self._contents[self._tags[where]][self._index[where]]
         else:
@@ -113,14 +113,14 @@ class UnionArray(Array):
 class RecordArray(Array):
     "Array of record objects (a.k.a. Table, array of structs/product type)."
 
-    def __init__(self, contents):
-        self._contents = contents
+    def __init__(self, contents, row=None, col=None):
+        self._contents, self._row, self._col = contents, row, col
 
     def __getitem__(self, where):
         if isinstance(where, str):
             return self._contents[where]
         elif isinstance(where, slice):
-            return RecordArray({n: x[where] for n, x in self._contents.items()})
+            return RecordArray({n: x[where] for n, x in self._contents.items()}, None if self._row is None else self._row[where], self._col)
         elif isinstance(where, int):
             return {n: x[where] for n, x in self._contents.items()}
         else:
@@ -140,20 +140,56 @@ class RecordArray(Array):
 
 class Instance:
     def __init__(self, value, row, col):
-        assert row is not None and col is not None
-        self._value, self._row, self._col = value, row, col
+        self.value, self.row, self.col = value, row, col
 
     def __repr__(self):
-        return "<Instance at {0}, {1}: {2}>".format(self._row, self._col, self._value)
+        return "<{0} at {1}, {2}: {3}>".format(type(self).__name__, self.row, self.col, self.value)
 
     def same(self, other):
-        return isinstance(other, Instance) and (self._row == other._row and self._col == other._col)
+        return isinstance(other, Instance) and (self.row == other.row and self.col == other.col)
 
     def __eq__(self, other):
-        return isinstance(other, Instance) and (self.same(other) or self._value == other._value)
+        return isinstance(other, Instance) and (self.same(other) or self.value == other.value)
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+class ListInstance(Instance):
+    def __getitem__(self, where):
+        return self.value[where]
+
+    def __iter__(self):
+        for x in self.value:
+            yield x
+
+class RecordInstance(Instance):
+    def __getitem__(self, where):
+        return self.value[where]
+
+def instantiate(data):
+    def recurse(array, start, stop):
+        if isinstance(array, PrimitiveArray):
+            if stop is None:
+                return Instance(array._data[start], array._row[start], array._col)
+            else:
+                return ListInstance([recurse(array, i, None) for i in range(start, stop)], array._row[start:stop], array._col)
+
+        elif isinstance(array, ListArray):
+            if stop is None:
+                return recurse(array._content, array._starts[start], array._stops[start])
+            else:
+                return ListInstance([recurse(array._content, array._starts[i], array._stops[i]) for i in range(start, stop)], array._row[start:stop], array._col)
+
+        elif isinstance(array, UnionArray):
+            raise NotImplementedError
+
+        elif isinstance(array, RecordArray):
+            if stop is None:
+                return RecordInstance({n: recurse(x, start, stop) for n, x in array._contents.items()}, array._row[start], array._col)
+            else:
+                return ListInstance([recurse(array, i, None) for i in range(start, stop)], array._row[start:stop], array._col)
+
+    return ListInstance([recurse(data, i, None) for i in range(len(data))], None, None)
 
 ################################################################################ tests
 
