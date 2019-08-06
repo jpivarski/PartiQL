@@ -22,8 +22,8 @@ class LanguageError(Exception):
         super(LanguageError, self).__init__(message)
 
 grammar = r"""
-start:       NEWLINE? (statement  (NEWLINE | ";"+))* statement? NEWLINE? ";"*  NEWLINE?
-statements:  NEWLINE? (statement  (NEWLINE | ";"+))* statement NEWLINE? ";"*  NEWLINE?
+start:       NEWLINE? (statement  (NEWLINE | ";"+))* statement? NEWLINE? ";"* NEWLINE?
+statements:  NEWLINE? (statement  (NEWLINE | ";"+))* statement  NEWLINE? ";"* NEWLINE?
 blockitems:  NEWLINE? (blockitem  (NEWLINE | ";"+))* blockitem  NEWLINE?
 assignments: NEWLINE? (assignment (NEWLINE | ";"+))* assignment NEWLINE?
 statement:   macro | expression | assignment | histogram | vary | cut
@@ -106,6 +106,10 @@ class AST:
                     self.line = getattr(x, "line", None)
         if self.line is not None:
             assert self.source is not None
+        self._validate()
+
+    def _validate(self):
+        pass
 
     def __repr__(self):
         return "{0}({1})".format(type(self).__name__, ", ".join(repr(getattr(self, n)) for n in self._fields))
@@ -142,6 +146,15 @@ class Symbol(Expression):
 class Block(Expression):
     _fields = ("body",)
 
+    def _validate(self):
+        if len(self.body) == 0:
+            raise LanguageError("expression block may not be empty", self.line, self.source, None)
+        for x in self.body[:-1]:
+            if isinstance(x, Expression) or not isinstance(x, BlockItem):
+                raise LanguageError("every item in a block (surrounded by curly braces) must be an assignment or a histogram except the last one, which must be an expression with a return value", x.line, self.source, None)
+        if not isinstance(self.body[-1], Expression):
+            raise LanguageError("every item in a block (surrounded by curly braces) must be an assignment or a histogram except the last one, which must be an expression with a return value", self.body[-1].line, self.source, None)
+
 class Call(Expression):
     _fields = ("function", "arguments")
 
@@ -155,7 +168,12 @@ class Choose(Expression):
     _fields = ("symbols", "table")
 
 class TableBlock(Expression):
-    _fields = ("table", "block")
+    _fields = ("table", "body")
+
+    def _validate(self):
+        for x in self.body:
+            if isinstance(x, Expression) or not isinstance(x, BlockItem):
+                raise LanguageError("every item in a block defining a table (curly braces after a table definitino) must be an assignment or a histogram", x.line, self.source, None)
 
 class GroupBy(Expression):
     _fields = ("table", "groupby")
@@ -170,26 +188,34 @@ class Axis(AST):
     _fields = ("expression", "binning")
 
 class Vary(Statement):
-    _fields = ("trials", "statements")
+    _fields = ("trials", "body")
+
+    def _validate(self):
+        for x in self.body:
+            if isinstance(x, Expression) or not isinstance(x, Statement):
+                raise LanguageError("every statement in a vary must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, self.source, None)
 
 class Trial(AST):
     _fields = ("assignments", "named")
 
 class Cut(Statement):
-    _fields = ("expression", "weight", "named", "statements")
+    _fields = ("expression", "weight", "named", "body")
 
-class Macro(Statement):
-    _fields = ("parameters", "body")
+    def _validate(self):
+        for x in self.body:
+            if isinstance(x, Expression) or not isinstance(x, Statement):
+                raise LanguageError("every statement in a cut must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, self.source, None)
 
-def parse(source, debug=False):
+def parse(source):
     start = parse.parser.parse(source)
-    if debug:
-        print(start.pretty())
 
     op2fcn = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**",
               "pos": "*1", "neg": "*-1",
               "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in",
               "and": "and", "or": "or", "isnot": "not"}
+
+    class Macro(Statement):
+        _fields = ("parameters", "body")
 
     class MacroBlock(AST):
         _fields = ("body",)
@@ -334,13 +360,22 @@ def parse(source, debug=False):
         else:
             raise NotImplementedError("node: {0} numchildren: {1}\n{2}".format(node.data, len(node.children), node.pretty()))
 
-    return toast(start, {}, None)
+    out = toast(start, {}, None)
+    if not parse.debugging:
+        if len(out) == 0:
+            raise LanguageError("source may not be empty", 1, source, None)
+        for x in out:
+            if isinstance(x, Expression) or not isinstance(x, Statement):
+                raise LanguageError("every statement must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, source, None)
+    return out
 
 parse.parser = lark.Lark(grammar)
+parse.debugging = False
 
 ################################################################################ tests
 
 def test_whitespace():
+    parse.debugging = True
     assert parse(r"") == []
     assert parse(r"""x
 """) == [Symbol("x")]
@@ -375,8 +410,10 @@ x""") == [Symbol("x")]
     assert parse(r"""/* multiline
                         comment */
 x""") == [Symbol("x")]
+    parse.debugging = False
 
 def test_expressions():
+    parse.debugging = True
     assert parse(r"x") == [Symbol("x")]
     assert parse(r"1") == [Literal(1)]
     assert parse(r"3.14") == [Literal(3.14)]
@@ -414,8 +451,10 @@ def test_expressions():
     assert parse(r"p or q and r") == [Call(Symbol("or"), [Symbol("p"), Call(Symbol("and"), [Symbol("q"), Symbol("r")])])]
     assert parse(r"(p or q) and r") == [Call(Symbol("and"), [Call(Symbol("or"), [Symbol("p"), Symbol("q")]), Symbol("r")])]
     assert parse(r"if x > 0 then 1 else -1") == [Call(Symbol("if"), [Call(Symbol(">"), [Symbol("x"), Literal(0)]), Literal(1), Call(Symbol("*-1"), [Literal(1)])])]
+    parse.debugging = False
 
 def test_assign():
+    parse.debugging = True
     assert parse(r"""
 x = 5
 x + 2
@@ -432,8 +471,10 @@ y = {
 y""") == [Assignment("y", Block([Assignment("x", Literal(5)), Call(Symbol("+"), [Symbol("x"), Literal(2)])])), Symbol("y")]
     assert parse(r"{x + 2}") == [Block([Call(Symbol("+"), [Symbol("x"), Literal(2)])])]
     assert parse(r"if x > 0 then {1} else {-1}") == [Call(Symbol("if"), [Call(Symbol(">"), [Symbol("x"), Literal(0)]), Block([Literal(1)]), Block([Call(Symbol("*-1"), [Literal(1)])])])]
+    parse.debugging = False
 
 def test_table():
+    parse.debugging = True
     assert parse(r"x from table") == [Choose(["x"], Symbol("table"))]
     assert parse(r"(x, y) from table") == [Choose(["x", "y"], Symbol("table"))]
     assert parse(r"f((x, y) from table)") == [Call(Symbol("f"), [Choose(["x", "y"], Symbol("table"))])]
@@ -453,6 +494,7 @@ def test_table():
     assert parse(r"x from table where x > 0 group by table") == [GroupBy(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), Symbol("table"))]
     assert parse(r"x from table {y = x} group by table") == [GroupBy(TableBlock(Choose(["x"], Symbol("table")), [Assignment("y", Symbol("x"))]), Symbol("table"))]
     assert parse(r"x from table where x > 0 {y = x} group by table") == [GroupBy(TableBlock(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), [Assignment("y", Symbol("x"))]), Symbol("table"))]
+    parse.debugging = False
 
 def test_histogram():
     assert parse(r"hist pt") == [Histogram([Axis(Symbol("pt"), None)], None, None)]
