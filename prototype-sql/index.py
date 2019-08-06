@@ -76,11 +76,14 @@ class ColIndex:
 
     def __getitem__(self, where):
         if isinstance(where, int):
-            return ColKey(self._path[where])
+            return ColKey((self._path[where],))
         elif isinstance(where, slice):
             return ColIndex(*self._path[where])
         else:
             raise NotImplementedError(where)
+
+    def key(self):
+        return ColKey(self._path)
 
     def withattr(self, attr):
         return ColIndex(*(self._path + (attr,)))
@@ -113,7 +116,7 @@ class ColKey:
         return "ColKey({0})".format(repr(self._index))
 
     def __str__(self):
-        return "({1})".format(" ".join(repr(x) for x in self._index))
+        return "({0})".format(" ".join(repr(x) for x in self._index))
 
     def __eq__(self, other):
         return isinstance(other, ColKey) and self._index == other._index

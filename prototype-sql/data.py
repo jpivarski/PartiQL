@@ -144,11 +144,11 @@ class Instance:
     def __init__(self, value, row, col):
         self.value, self.row, self.col = value, row, col
 
-    def _repr(self):
-        return repr(self.value) if isinstance(self.value, str) else str(self.value)
+    def _repr(self, indent):
+        return
 
-    def __repr__(self):
-        return "{0}{1}{2}{{ {3} }}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), self._repr())
+    def __repr__(self, indent=""):
+        return indent + "{0}{1}{2}{{ {3} }}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), repr(self.value))
 
     def same(self, other):
         return isinstance(other, Instance) and (self.row == other.row and self.col == other.col)
@@ -162,6 +162,13 @@ class Instance:
 class ListInstance(Instance):
     _name = "List"
 
+    def __repr__(self, indent=""):
+        out = [indent, "{0}{1}{2}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
+        for x in self.value:
+            out.append(x.__repr__(indent + "    ") + "\n")
+        out.append(indent + "}")
+        return "".join(out)
+
     def __getitem__(self, where):
         return self.value[where]
 
@@ -172,8 +179,12 @@ class ListInstance(Instance):
 class RecordInstance(Instance):
     _name = "Rec"
 
-    def _repr(self):
-        return ", ".join(str(x) for x in self.value.values())
+    def __repr__(self, indent=""):
+        out = [indent, "{0}{1}{2}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
+        for x in self.value.values():
+            out.append(x.__repr__(indent + "    ") + "\n")
+        out.append(indent + "}")
+        return "".join(out)
 
     def __getitem__(self, where):
         return self.value[where]
@@ -181,13 +192,13 @@ class RecordInstance(Instance):
 def instantiate(data):
     def recurse(array, i):
         if isinstance(array, PrimitiveArray):
-            return Instance(array._data[i], array._row[i], array._col)
+            return Instance(array._data[i], array._row[i], array._col.key())
         elif isinstance(array, ListArray):
-            return ListInstance([recurse(array._content, j) for j in range(array._starts[i], array._stops[i])], array._row[i], array._col)
+            return ListInstance([recurse(array._content, j) for j in range(array._starts[i], array._stops[i])], array._row[i], array._col.key())
         elif isinstance(array, UnionArray):
             return recurse(array._contents[array._tags[i]], array._offsets[i])
         elif isinstance(array, RecordArray):
-            return RecordInstance({n: recurse(x, i) for n, x in array._contents.items()}, array._row[i], array._col)
+            return RecordInstance({n: recurse(x, i) for n, x in array._contents.items()}, array._row[i], array._col.key())
         else:
             raise NotImplementedError
     return ListInstance([recurse(data, i) for i in range(len(data))], None, None)
@@ -314,4 +325,4 @@ def test_data():
     assert egamma._contents[0]._contents["pt"]._col == ("pt",)
     assert egamma._contents[1]._contents["pt"]._col == ("pt",)
 
-    return instantiate(egamma)
+    instantiate(egamma)
