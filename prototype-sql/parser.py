@@ -36,7 +36,7 @@ cut:        "cut" expression weight? named? "{" statements "}"
 vary:       "vary" trial+ "{" statements "}"
 histogram:  "hist" axes weight? named?
 
-trial:  "by" "{" assignments "}"
+trial:  "by" "{" assignments "}" named?
 named:  "named" expression
 weight: "weight" "by" expression
 axes:   axis ("," axis)*
@@ -172,6 +172,9 @@ class Axis(AST):
 class Vary(Statement):
     _fields = ("trials", "statements")
 
+class Trial(AST):
+    _fields = ("assignments", "named")
+
 class Cut(Statement):
     _fields = ("expression", "weight", "named", "statements")
 
@@ -284,6 +287,25 @@ def parse(source, debug=False):
             else:
                 binning = toast(node.children[1], macros, defining)
             return Axis(toast(node.children[0], macros, defining), binning, source=source)
+
+        elif node.data == "vary":
+            return Vary([toast(x, macros, defining) for x in node.children[:-1]], toast(node.children[-1], macros, defining), source=source)
+
+        elif node.data == "trial":
+            if len(node.children) == 1:
+                named = None
+            else:
+                named = toast(node.children[1].children[0], macros, defining)
+            return Trial(toast(node.children[0], macros, defining), named, source=source)
+
+        elif node.data == "cut":
+            weight, named = None, None
+            for x in node.children[1:-1]:
+                if x.data == "weight":
+                    weight = toast(x.children[0], macros, defining)
+                if x.data == "named":
+                    named = toast(x.children[0], macros, defining)
+            return Cut(toast(node.children[0], macros, defining), weight, named, toast(node.children[-1], macros, defining), source=source)
 
         elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "groupby", "fields", "where", "union", "cross", "join", "choose", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             return toast(node.children[0], macros, defining)
@@ -439,3 +461,81 @@ def test_histogram():
     assert parse(r'hist pt weight by w named "hello"') == [Histogram([Axis(Symbol("pt"), None)], Symbol("w"), Literal("hello"))]
     assert parse(r'hist pt by regular(100, 0, 150) named "hello"') == [Histogram([Axis(Symbol("pt"), Call(Symbol("regular"), [Literal(100), Literal(0), Literal(150)]))], None, Literal("hello"))]
     assert parse(r'hist pt by regular(100, 0, 150) weight by w named "hello"') == [Histogram([Axis(Symbol("pt"), Call(Symbol("regular"), [Literal(100), Literal(0), Literal(150)]))], Symbol("w"), Literal("hello"))]
+
+def test_cutvary():
+    assert parse(r"""
+cut x > 0 {
+    hist x
+}
+""") == [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), None, None, [Histogram([Axis(Symbol('x'), None)], None, None)])]
+    assert parse(r"""
+cut x > 0 {
+    hist x
+}
+cut x <= 0 {
+    hist x
+}
+""") == [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), None, None, [Histogram([Axis(Symbol('x'), None)], None, None)]), Cut(Call(Symbol("<="), [Symbol("x"), Literal(0)]), None, None, [Histogram([Axis(Symbol('x'), None)], None, None)])]
+    assert parse(r"""
+cut x > 0 weight by w {
+    hist x
+}
+""") == [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), Symbol("w"), None, [Histogram([Axis(Symbol('x'), None)], None, None)])]
+    assert parse(r"""
+cut x > 0 named "hello" {
+    hist x
+}
+""") == [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), None, Literal("hello"), [Histogram([Axis(Symbol('x'), None)], None, None)])]
+    assert parse(r"""
+cut x > 0 weight by w named "hello" {
+    hist x
+}
+""") == [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), Symbol("w"), Literal("hello"), [Histogram([Axis(Symbol('x'), None)], None, None)])]
+    assert parse(r"""
+cut x > 0 {
+    cut y > 0 {
+        hist z
+    }
+}
+""") == [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), None, None, [Cut(Call(Symbol(">"), [Symbol("y"), Literal(0)]), None, None, [Histogram([Axis(Symbol("z"), None)], None, None)])])]
+    assert parse(r"""
+vary by {epsilon = 0} {
+    hist epsilon
+}
+""") == [Vary([Trial([Assignment("epsilon", Literal(0))], None)], [Histogram([Axis(Symbol("epsilon"), None)], None, None)])]
+    assert parse(r"""
+vary by {epsilon = 0} named "hello" {
+    hist epsilon
+}
+""") == [Vary([Trial([Assignment("epsilon", Literal(0))], Literal("hello"))], [Histogram([Axis(Symbol("epsilon"), None)], None, None)])]
+    assert parse(r"""
+vary by {epsilon = 0} by {epsilon = 0.001} {
+    hist epsilon
+}
+""") == [Vary([Trial([Assignment("epsilon", Literal(0))], None), Trial([Assignment("epsilon", Literal(0.001))], None)], [Histogram([Axis(Symbol("epsilon"), None)], None, None)])]
+    assert parse(r"""
+vary by {epsilon = 0} named "one"
+     by {epsilon = 0.001} {
+    hist epsilon
+}
+""") == [Vary([Trial([Assignment("epsilon", Literal(0))], Literal("one")), Trial([Assignment("epsilon", Literal(0.001))], None)], [Histogram([Axis(Symbol("epsilon"), None)], None, None)])]
+    assert parse(r"""
+vary by {epsilon = 0} named "one"
+     by {epsilon = 0.001} named "two" {
+    hist epsilon
+}
+""") == [Vary([Trial([Assignment("epsilon", Literal(0))], Literal("one")), Trial([Assignment("epsilon", Literal(0.001))], Literal("two"))], [Histogram([Axis(Symbol("epsilon"), None)], None, None)])]
+    assert parse(r"""
+cut x > 0 {
+    vary by {epsilon = 0} {
+        hist epsilon
+    }
+}
+""") == [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), None, None, [Vary([Trial([Assignment("epsilon", Literal(0))], None)], [Histogram([Axis(Symbol("epsilon"), None)], None, None)])])]
+    assert parse(r"""
+vary by {epsilon = 0} {
+    cut x > 0 {
+        hist epsilon
+    }
+}
+""") == [Vary([Trial([Assignment("epsilon", Literal(0))], None)], [Cut(Call(Symbol(">"), [Symbol("x"), Literal(0)]), None, None, [Histogram([Axis(Symbol("epsilon"), None)], None, None)])])]
