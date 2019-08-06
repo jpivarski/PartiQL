@@ -43,7 +43,7 @@ class RowIndex:
 
     def __getitem__(self, where):
         if isinstance(where, int):
-            return RowItem(self._array[where], self._id)
+            return RowKey(self._array[where], self._id)
         elif isinstance(where, slice):
             return RowIndex(self._array[where], self._id)
         else:
@@ -76,7 +76,7 @@ class ColIndex:
 
     def __getitem__(self, where):
         if isinstance(where, int):
-            return ColItem(self._path[where])
+            return ColKey(self._path[where])
         elif isinstance(where, slice):
             return ColIndex(*self._path[where])
         else:
@@ -85,38 +85,38 @@ class ColIndex:
     def withattr(self, attr):
         return ColIndex(*(self._path + (attr,)))
 
-class RowItem:
-    "RowItem is an element of a RowIndex, representing a unique row by reference."
+class RowKey:
+    "RowKey is an element of a RowIndex, representing a unique row by reference."
 
     def __init__(self, index, id):
         self._index, self._id = index, id
 
     def __repr__(self):
-        return "RowItem({0}, {1})".format(repr(self._index), self._id)
+        return "RowKey({0}, {1})".format(repr(self._index), self._id)
 
     def __str__(self):
         return "#{0}({1})".format(self._id, " ".join(repr(x) for x in self._index))
 
     def __eq__(self, other):
-        return isinstance(other, RowItem) and self._index == other._index and self._id == other._id
+        return isinstance(other, RowKey) and self._index == other._index and self._id == other._id
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
-class ColItem:
-    "ColItem is an element of a ColIndex, representing a unique column by value."
+class ColKey:
+    "ColKey is an element of a ColIndex, representing a unique column by value."
 
     def __init__(self, index):
         self._index = index
 
     def __repr__(self):
-        return "ColItem({0})".format(repr(self._index))
+        return "ColKey({0})".format(repr(self._index))
 
     def __str__(self):
         return "({1})".format(" ".join(repr(x) for x in self._index))
 
     def __eq__(self, other):
-        return isinstance(other, ColItem) and self._index == other._key
+        return isinstance(other, ColKey) and self._index == other._index
 
     def __ne__(self, other):
         return not self.__eq__(other)

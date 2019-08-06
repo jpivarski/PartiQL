@@ -314,4 +314,4 @@ def test_data():
     assert egamma._contents[0]._contents["pt"]._col == ("pt",)
     assert egamma._contents[1]._contents["pt"]._col == ("pt",)
 
-    instantiate(egamma)
+    return instantiate(egamma)
