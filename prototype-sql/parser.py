@@ -3,10 +3,12 @@
 import lark
 
 class LanguageError(Exception):
-    def __init__(self, message, line=None, source=None):
+    def __init__(self, message, line=None, source=None, defining=None):
         self.message, self.line = message, line
         if line is not None:
             message = "line {0}: {1}".format(line, message)
+            if defining is not None:
+                message = message + " (while defining macro {0})".format(repr(defining))
             if source is not None:
                 context = source.split("\n")[line - 2 : line + 1]
                 if line == 1:
@@ -174,17 +176,18 @@ def parse(source, debug=False):
               "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in",
               "and": "and", "or": "or", "isnot": "not"}
 
-    def toast(node, macros):
+    def toast(node, macros, defining):
         if isinstance(node, lark.Token):
             return None
 
         elif node.data == "macro":
-            macros[str(node.children[0])] = ([str(x) for x in node.children[1:-1]], MacroBlock(toast(node.children[-1], macros), source=source))
+            name = str(node.children[0])
+            macros[name] = ([str(x) for x in node.children[1:-1]], MacroBlock(toast(node.children[-1], macros, name), source=source))
             return None
 
         elif node.data == "symbol":
             if str(node.children[0]) in macros:
-                raise LanguageError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source)
+                raise LanguageError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source, defining)
             return Symbol(str(node.children[0]), line=node.children[0].line, source=source)
         elif node.data == "int":
             return Literal(int(str(node.children[0])), line=node.children[0].line, source=source)
@@ -196,48 +199,60 @@ def parse(source, debug=False):
             return Literal(eval(str(node.children[0])), line=node.children[0].line, source=source)
 
         elif node.data in ("add", "sub", "mul", "div", "pow", "eq", "ne", "gt", "ge", "lt", "le", "in", "notin", "and", "or") and len(node.children) == 2:
-            return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros), toast(node.children[1], macros)], source=source)
+            return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
         elif node.data in ("pos", "neg", "isnot") and len(node.children) == 1:
-            return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros)], source=source)
+            return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros, defining)], source=source)
 
         elif node.data == "branch" and len(node.children) == 3:
-            return Call(Symbol("if"), [toast(node.children[0], macros), toast(node.children[1], macros), toast(node.children[2], macros)], source=source)
+            return Call(Symbol("if"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), toast(node.children[2], macros, defining)], source=source)
 
         elif node.data == "call" and len(node.children) == 2:
             if node.children[1].data == "attr":
-                return GetAttr(toast(node.children[0], macros), str(node.children[1].children[0]), source=source)
+                return GetAttr(toast(node.children[0], macros, defining), str(node.children[1].children[0]), source=source)
 
-            args = [toast(x, macros) for x in node.children[1].children[0].children] if len(node.children[1].children) != 0 else []
+            args = [toast(x, macros, defining) for x in node.children[1].children[0].children] if len(node.children[1].children) != 0 else []
+
+            # if len(args) != 0 and any(x.data == "choose" for x in node.children[1].children[0].children):
+            #     raise Exception
+
+            # if len(args) != 0 and any(x.data == "choose" for x in node.children[1].children[0].children) and any(isinstance(x, Choose) and len(x.symbols) > 1 for x in args):
+            #     raise Exception  # LanguageError("'{0} from ...' is ambiguous in a function argument list")
 
             if node.children[1].data == "args":
                 if len(node.children[0].children) == 1 and node.children[0].children[0].data == "symbol" and str(node.children[0].children[0].children[0]) in macros:
                     name = str(node.children[0].children[0].children[0])
                     params, body = macros[name]
                     if len(params) != len(args):
-                        raise LanguageError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line, source)
+                        raise LanguageError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line, source, defining)
                     return body.replace(dict(zip(params, args)))
 
                 else:
-                    return Call(toast(node.children[0], macros), args, source=source)
+                    return Call(toast(node.children[0], macros, defining), args, source=source)
 
             elif node.children[1].data == "items":
-                return GetItem(toast(node.children[0], macros), args, source=source)
+                return GetItem(toast(node.children[0], macros, defining), args, source=source)
 
             else:
                 assert False
 
+        elif node.data == "choose":
+            return Choose(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
+
+        elif node.data == "namelist":
+            return [str(x) for x in node.children]
+
         elif node.data == "assignment":
-            return Assignment(str(node.children[0]), toast(node.children[1], macros), line=node.children[0].line, source=source)
+            return Assignment(str(node.children[0]), toast(node.children[1], macros, defining), line=node.children[0].line, source=source)
 
         elif node.data == "block":
-            return Block(toast(node.children[0], macros), source=source)
+            return Block(toast(node.children[0], macros, defining), source=source)
 
         elif node.data == "histogram":
-            return Histogram(toast(node.children[0], macros), None, None, None, source=source)
+            return Histogram(toast(node.children[0], macros, defining), None, None, None, source=source)
 
-        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
-            return toast(node.children[0], macros)
+        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "groupby", "fields", "where", "union", "cross", "join", "choose", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
+            return toast(node.children[0], macros, defining)
 
         elif node.data in ("start", "statements", "blockitems", "assignments"):
             if node.data == "statements":
@@ -245,7 +260,7 @@ def parse(source, debug=False):
             out = []
             for x in node.children:
                 if not isinstance(x, lark.Token):
-                    y = toast(x, macros)
+                    y = toast(x, macros, defining)
                     if y is None:
                         pass
                     elif isinstance(y, MacroBlock):
@@ -257,7 +272,7 @@ def parse(source, debug=False):
         else:
             raise NotImplementedError("node: {0} numchildren: {1}\n{2}".format(node.data, len(node.children), node.pretty()))
 
-    return toast(start, {})
+    return toast(start, {}, None)
 
 parse.parser = lark.Lark(grammar)
 
@@ -355,3 +370,8 @@ y = {
 y""") == [Assignment("y", Block([Assignment("x", Literal(5)), Call(Symbol("+"), [Symbol("x"), Literal(2)])])), Symbol("y")]
     assert parse(r"{x + 2}") == [Block([Call(Symbol("+"), [Symbol("x"), Literal(2)])])]
     assert parse(r"if x > 0 then {1} else {-1}") == [Call(Symbol("if"), [Call(Symbol(">"), [Symbol("x"), Literal(0)]), Block([Literal(1)]), Block([Call(Symbol("*-1"), [Literal(1)])])])]
+
+def test_table():
+    assert parse(r"x from table") == [Choose(["x"], Symbol("table"))]
+    assert parse(r"x, y from table") == [Choose(["x", "y"], Symbol("table"))]
+    assert parse(r"f(x, y from table)") == [Call(Symbol("f"), [Choose(["x", "y"], Symbol("table"))])]
