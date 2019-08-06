@@ -70,7 +70,7 @@ atom: "(" expression ")"
     | FLOAT -> float
     | ESCAPED_STRING -> string
 
-namelist: CNAME ("," CNAME)*
+namelist: CNAME | "(" CNAME ("," CNAME)* ")"
 arglist: expression ("," expression)*
 trailer: "(" arglist? ")" -> args
        | "[" arglist "]" -> items
@@ -212,12 +212,6 @@ def parse(source, debug=False):
                 return GetAttr(toast(node.children[0], macros, defining), str(node.children[1].children[0]), source=source)
 
             args = [toast(x, macros, defining) for x in node.children[1].children[0].children] if len(node.children[1].children) != 0 else []
-
-            # if len(args) != 0 and any(x.data == "choose" for x in node.children[1].children[0].children):
-            #     raise Exception
-
-            # if len(args) != 0 and any(x.data == "choose" for x in node.children[1].children[0].children) and any(isinstance(x, Choose) and len(x.symbols) > 1 for x in args):
-            #     raise Exception  # LanguageError("'{0} from ...' is ambiguous in a function argument list")
 
             if node.children[1].data == "args":
                 if len(node.children[0].children) == 1 and node.children[0].children[0].data == "symbol" and str(node.children[0].children[0].children[0]) in macros:
@@ -373,5 +367,6 @@ y""") == [Assignment("y", Block([Assignment("x", Literal(5)), Call(Symbol("+"), 
 
 def test_table():
     assert parse(r"x from table") == [Choose(["x"], Symbol("table"))]
-    assert parse(r"x, y from table") == [Choose(["x", "y"], Symbol("table"))]
-    assert parse(r"f(x, y from table)") == [Call(Symbol("f"), [Choose(["x", "y"], Symbol("table"))])]
+    assert parse(r"(x, y) from table") == [Choose(["x", "y"], Symbol("table"))]
+    assert parse(r"f((x, y) from table)") == [Call(Symbol("f"), [Choose(["x", "y"], Symbol("table"))])]
+    assert parse(r"f(x, y from table)") == [Call(Symbol("f"), [Symbol("x"), Choose(["y"], Symbol("table"))])]
