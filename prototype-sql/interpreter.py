@@ -24,7 +24,7 @@ class SymbolTable:
         elif self._parent is not None:
             return self._parent[where]
         else:
-            raise parser.LanguageError("unrecognized variable or function name: {0}".format(repr(where)), self._line, self._source)
+            raise parser.LanguageError("unrecognized variable or function name: {0}".format(repr(where)), line, source)
 
     def __getitem__(self, where):
         return self.get(where)
@@ -213,8 +213,8 @@ fcns["gamma"] = NumericalFunction("gamma", math.gamma)
 fcns["lgamma"] = NumericalFunction("lgamma", math.lgamma)
 
 class EqualityFunction:
-    def __init__(self, name, negated):
-        self._name, self._negated = name, negated
+    def __init__(self, negated):
+        self._negated = negated
 
     def _simplify(self, t):
         if isinstance(t, (int, float)):
@@ -224,7 +224,7 @@ class EqualityFunction:
 
     def _evaluate(self, node, left, right):
         if type(left) != type(right) or (type(left) is data.ValueInstance and self._simplify(type(left.value)) != self._simplify(type(right.value))):
-            raise parser.LanguageError("left and right of {0} must have the same types".format(self._name), node.line, node.source)
+            raise parser.LanguageError("left and right of an equality/inequality check must have the same types", node.line, node.source)
 
         if type(left) is data.ValueInstance:
             out = (left.value == right.value)
@@ -258,9 +258,26 @@ class EqualityFunction:
         assert isinstance(args[0], data.Instance) and isinstance(args[1], data.Instance)
         return data.ValueInstance(self._evaluate(node, args[0], args[1]), rowkey, index.DerivedColKey(node))
 
-fcns["=="] = EqualityFunction("equality", False)
-fcns["!="] = EqualityFunction("inequality", True)
+fcns["=="] = EqualityFunction(False)
+fcns["!="] = EqualityFunction(True)
 
+class InclusionFunction(EqualityFunction):
+    def _evaluate(self, node, left, right):
+        if type(right) != data.ListInstance:
+            raise parser.LanguageError("value to the right of 'in' must be a list", node.line, node.source)
+        if self._negated:
+            for x in right.value:
+                if not EqualityFunction._evaluate(self, node, left, x):
+                    return False
+            return True
+        else:
+            for x in right.value:
+                if EqualityFunction._evaluate(self, node, left, x):
+                    return True
+            return False
+
+fcns["in"] = InclusionFunction(False)
+fcns["not in"] = InclusionFunction(True)
 
 ################################################################################ run
 
@@ -388,7 +405,8 @@ def test_dataset():
             "pt": data.PrimitiveArray([1, 2, 3, 4, 5, 100, 30, 50, 1, 2, 3, 4]),
             "mass": data.PrimitiveArray([10, 10, 10, 10, 10, 5, 15, 15, 9, 8, 7, 6])
         })),
-        "met": data.PrimitiveArray([100, 200, 300, 400])
+        "met": data.PrimitiveArray([100, 200, 300, 400]),
+        "stuff": data.ListArray([0, 0, 1, 3], [0, 1, 3, 6], data.PrimitiveArray([1, 2, 2, 3, 3, 3]))
     })
     events.setindex()
     return data.instantiate(events)
@@ -440,3 +458,33 @@ x = (met != met)
 x = (muons != muons)
 """, test_dataset())
     assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+
+    output, counter = run(r"""
+x = (stuff == stuff)
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = (stuff != stuff)
+""", test_dataset())
+    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+
+    output, counter = run(r"""
+x = 1 in stuff
+""", test_dataset())
+    assert output.tolist() == [{"x": False}, {"x": True}, {"x": False}, {"x": False}]
+
+    output, counter = run(r"""
+x = 2 in stuff
+""", test_dataset())
+    assert output.tolist() == [{"x": False}, {"x": False}, {"x": True}, {"x": False}]
+
+    output, counter = run(r"""
+x = 1 not in stuff
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": False}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = 2 not in stuff
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": False}, {"x": True}]
