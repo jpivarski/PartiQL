@@ -1,5 +1,7 @@
 # Simple, slow interpreter of row-wise data. Everything is a data.Instance.
 
+import math
+
 import numpy
 
 import index
@@ -141,6 +143,9 @@ class Histogram(Counter):
 
 fcns = SymbolTable()
 
+fcns["pi"] = data.ValueInstance(math.pi, None, index.DerivedColKey(parser.Literal(math.pi)))
+fcns["e"] = data.ValueInstance(math.e, None, index.DerivedColKey(parser.Literal(math.e)))
+
 class NumericalFunction:
     def __init__(self, name, fcn):
         self._name, self._fcn = name, fcn
@@ -149,21 +154,119 @@ class NumericalFunction:
         args = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
         for x in args:
             assert isinstance(x, data.Instance)
-            if isinstance(x, (data.ListInstance, data.RecordInstance)):
-                raise parser.LanguageError("all arguments in {0} must be numbers (not lists or records)", x.line, x.source)
-        return data.Instance(self._fcn(*[x.value for x in args]), rowkey, index.DerivedColKey(node))
+            if not (isinstance(x, data.ValueInstance) and isinstance(x.value, (int, float))):
+                raise parser.LanguageError("all arguments in {0} must be numbers (not lists or records)".format(self._name), x.line, x.source)
+
+        try:
+            result = self._fcn(*[x.value for x in args])
+        except Exception as err:
+            raise parser.LanguageError(str(err), node.line, node.source)
+
+        return data.ValueInstance(result, rowkey, index.DerivedColKey(node))
 
 fcns["+"] = NumericalFunction("addition", lambda x, y: x + y)
+fcns["-"] = NumericalFunction("subtraction", lambda x, y: x - y)
+fcns["*"] = NumericalFunction("multiplication", lambda x, y: x * y)
+fcns["/"] = NumericalFunction("division", lambda x, y: x / float(y))
+fcns["*1"] = NumericalFunction("identity", lambda x: x)
+fcns["*-1"] = NumericalFunction("negation", lambda x: -x)
+fcns["**"] = NumericalFunction("exponentiation", lambda x, y: x**y)
+fcns[">"] = NumericalFunction("greater-than", lambda x, y: x > y)
+fcns[">="] = NumericalFunction("greater-or-equal-to", lambda x, y: x >= y)
+fcns["<"] = NumericalFunction("less-than", lambda x, y: x < y)
+fcns["<="] = NumericalFunction("less-or-equal-to", lambda x, y: x <= y)
+fcns["abs"] = NumericalFunction("abs", abs)
+fcns["round"] = NumericalFunction("round", round)
+fcns["ceil"] = NumericalFunction("ceil", math.ceil)
+fcns["factorial"] = NumericalFunction("factorial", math.factorial)
+fcns["floor"] = NumericalFunction("floor", math.floor)
+fcns["gcd"] = NumericalFunction("gcd", math.gcd)
+fcns["isinf"] = NumericalFunction("isinf", math.isinf)
+fcns["isnan"] = NumericalFunction("isnan", math.isnan)
+fcns["ldexp"] = NumericalFunction("ldexp", math.ldexp)
+fcns["exp"] = NumericalFunction("exp", math.exp)
+fcns["expm1"] = NumericalFunction("expm1", math.expm1)
+fcns["log"] = NumericalFunction("log", math.log)
+fcns["log1p"] = NumericalFunction("log1p", math.log1p)
+fcns["log10"] = NumericalFunction("log10", math.log10)
+fcns["pow"] = NumericalFunction("pow", math.pow)
+fcns["sqrt"] = NumericalFunction("sqrt", math.sqrt)
+fcns["arccos"] = NumericalFunction("arccos", math.acos)
+fcns["arcsin"] = NumericalFunction("arcsin", math.asin)
+fcns["arctan"] = NumericalFunction("arctan", math.atan)
+fcns["arctan2"] = NumericalFunction("arctan2", math.atan2)
+fcns["cos"] = NumericalFunction("cos", math.cos)
+fcns["hypot"] = NumericalFunction("hypot", math.hypot)
+fcns["sin"] = NumericalFunction("sin", math.sin)
+fcns["tan"] = NumericalFunction("tan", math.tan)
+fcns["degrees"] = NumericalFunction("degrees", math.degrees)
+fcns["radians"] = NumericalFunction("radians", math.radians)
+fcns["arccosh"] = NumericalFunction("arccosh", math.acosh)
+fcns["arcsinh"] = NumericalFunction("arcsinh", math.asinh)
+fcns["arctanh"] = NumericalFunction("arctanh", math.atanh)
+fcns["cosh"] = NumericalFunction("cosh", math.cosh)
+fcns["sinh"] = NumericalFunction("sinh", math.sinh)
+fcns["tanh"] = NumericalFunction("tanh", math.tanh)
+fcns["erf"] = NumericalFunction("erf", math.erf)
+fcns["erfc"] = NumericalFunction("erfc", math.erfc)
+fcns["gamma"] = NumericalFunction("gamma", math.gamma)
+fcns["lgamma"] = NumericalFunction("lgamma", math.lgamma)
 
+class EqualityFunction:
+    def __init__(self, name, negated):
+        self._name, self._negated = name, negated
 
+    def _simplify(self, t):
+        if isinstance(t, (int, float)):
+            return float
+        else:
+            return t
 
+    def _evaluate(self, node, left, right):
+        if type(left) != type(right) or (type(left) is data.ValueInstance and self._simplify(type(left.value)) != self._simplify(type(right.value))):
+            raise parser.LanguageError("left and right of {0} must have the same types".format(self._name), node.line, node.source)
+
+        if type(left) is data.ValueInstance:
+            out = (left.value == right.value)
+
+        elif type(left) is data.ListInstance:
+            if len(left.value) == len(right.value):
+                if self._negated:
+                    for x, y in zip(left.value, right.value):
+                        if self._evaluate(node, x, y):
+                            return True
+                    return False
+                else:
+                    for x, y in zip(left.value, right.value):
+                        if not self._evaluate(node, x, y):
+                            return False
+                    return True
+            else:
+                out = False
+
+        elif type(left) is data.RecordInstance:
+            out = (left.row == right.row) and (left.col == right.col)
+
+        if self._negated:
+            return not out
+        else:
+            return out
+
+    def __call__(self, node, symbols, counter, weight, rowkey):
+        args = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
+        assert len(args) == 2
+        assert isinstance(args[0], data.Instance) and isinstance(args[1], data.Instance)
+        return data.ValueInstance(self._evaluate(node, args[0], args[1]), rowkey, index.DerivedColKey(node))
+
+fcns["=="] = EqualityFunction("equality", False)
+fcns["!="] = EqualityFunction("inequality", True)
 
 
 ################################################################################ run
 
 def runstep(node, symbols, counter, weight, rowkey):
     if isinstance(node, parser.Literal):
-        return data.Instance(node.value, None, index.DerivedColKey(node))
+        return data.ValueInstance(node.value, None, index.DerivedColKey(node))
 
     elif isinstance(node, parser.Symbol):
         return symbols[node.symbol]
@@ -222,7 +325,7 @@ def runstep(node, symbols, counter, weight, rowkey):
         datum = []
         for axis in node.axes:
             component = runstep(axis.expression, symbols, counter, weight, rowkey)
-            if isinstance(component, data.Instance) and isinstance(component.value, (int, float)):
+            if isinstance(component, data.ValueInstance) and isinstance(component.value, (int, float)):
                 datum.append(component.value)
             elif component is None:
                 datum.append(None)
@@ -317,3 +420,23 @@ x = met + 1
 x = met + 1 + met
 """, test_dataset())
     assert output.tolist() == [{"x": 201}, {"x": 401}, {"x": 601}, {"x": 801}]
+
+    output, counter = run(r"""
+x = (met == met)
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = (muons == muons)
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = (met != met)
+""", test_dataset())
+    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+
+    output, counter = run(r"""
+x = (muons != muons)
+""", test_dataset())
+    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]

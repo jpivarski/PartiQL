@@ -139,25 +139,23 @@ class RecordArray(Array):
             x.setindex(self._row, index.ColIndex(n) if col is None else col.withattr(n))
 
 class Instance:
-    _name = "Value"
-
     def __init__(self, value, row, col):
         self.value, self.row, self.col = value, row, col
 
-    def _repr(self, indent):
-        return
-
-    def __repr__(self, indent=""):
-        return indent + "{0}{1}{2}{{ {3} }}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), repr(self.value))
-
     def same(self, other):
-        return isinstance(other, Instance) and (self.row == other.row and self.col == other.col)
+        return type(self) is type(other) and (self.row == other.row and self.col == other.col)
 
     def __eq__(self, other):
-        return isinstance(other, Instance) and (self.same(other) or self.value == other.value)
+        return type(self) is type(other) and (self.same(other) or self.value == other.value)
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+class ValueInstance(Instance):
+    _name = "Value"
+
+    def __repr__(self, indent=""):
+        return indent + "{0}{1}{2}{{ {3} }}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), repr(self.value))
 
     def tolist(self):
         return self.value
@@ -216,7 +214,7 @@ class RecordInstance(Instance):
 def instantiate(data):
     def recurse(array, i):
         if isinstance(array, PrimitiveArray):
-            return Instance(array._data[i], array._row[i], array._col.key())
+            return ValueInstance(array._data[i], array._row[i], array._col.key())
         elif isinstance(array, ListArray):
             return ListInstance([recurse(array._content, j) for j in range(array._starts[i], array._stops[i])], array._row[i], array._col.key())
         elif isinstance(array, UnionArray):
