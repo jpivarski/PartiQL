@@ -159,6 +159,9 @@ class Instance:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def tolist(self):
+        return self.value
+
 class ListInstance(Instance):
     _name = "List"
 
@@ -176,6 +179,15 @@ class ListInstance(Instance):
         for x in self.value:
             yield x
 
+    def newempty(self):
+        return ListInstance([], self.row, self.col)
+
+    def append(self, x):
+        self.value.append(x)
+
+    def tolist(self):
+        return [x.tolist() for x in self.value]
+
 class RecordInstance(Instance):
     _name = "Rec"
 
@@ -191,6 +203,15 @@ class RecordInstance(Instance):
 
     def __getitem__(self, where):
         return self.value[where]
+
+    def __setitem__(self, where, what):
+        self.value[where] = what
+
+    def newempty(self):
+        return RecordInstance({}, self.row, self.col)
+
+    def tolist(self):
+        return {n: x.tolist() for n, x in self.value.items()}
 
 def instantiate(data):
     def recurse(array, i):

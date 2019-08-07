@@ -2,6 +2,7 @@
 
 import numpy
 
+import index
 import data
 import parser
 
@@ -28,6 +29,13 @@ class SymbolTable:
 
     def __setitem__(self, where, what):
         self._table[where] = what
+
+    def empty(self):
+        return len(self._table) == 0
+
+    def __iter__(self):
+        for n in self._table:
+            yield n
 
 class Counter:
     def __init__(self, line=None, source=None):
@@ -133,7 +141,19 @@ class Histogram(Counter):
 
 fcns = SymbolTable()
 
+class NumericalFunction:
+    def __init__(self, name, fcn):
+        self._name, self._fcn = name, fcn
 
+    def __call__(self, node, symbols, counter, weight, rowkey):
+        args = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
+        for x in args:
+            assert isinstance(x, data.Instance)
+            if isinstance(x, (data.ListInstance, data.RecordInstance)):
+                raise parser.LanguageError("all arguments in {0} must be numbers (not lists or records)", x.line, x.source)
+        return data.Instance(self._fcn(*[x.value for x in args]), rowkey, index.DerivedColKey(node))
+
+fcns["+"] = NumericalFunction("addition", lambda x, y: x + y)
 
 
 
@@ -141,9 +161,9 @@ fcns = SymbolTable()
 
 ################################################################################ run
 
-def runstep(node, symbols, counter, weight):
+def runstep(node, symbols, counter, weight, rowkey):
     if isinstance(node, parser.Literal):
-        return node.value
+        return data.Instance(node.value, None, index.DerivedColKey(node))
 
     elif isinstance(node, parser.Symbol):
         return symbols[node.symbol]
@@ -152,7 +172,11 @@ def runstep(node, symbols, counter, weight):
         raise NotImplementedError(node)
 
     elif isinstance(node, parser.Call):
-        raise NotImplementedError(node)
+        function = runstep(node.function, symbols, counter, weight, rowkey)
+        if callable(function):
+            return function(node, symbols, counter, weight, rowkey)
+        else:
+            raise parser.LanguageError("not a function; cannot be called", node.line, node.source)
 
     elif isinstance(node, parser.GetItem):
         raise NotImplementedError(node)
@@ -173,7 +197,7 @@ def runstep(node, symbols, counter, weight):
         raise NotImplementedError(node)
 
     elif isinstance(node, parser.Assignment):
-        raise NotImplementedError(node)
+        symbols[node.symbol] = runstep(node.expression, symbols, counter, weight, rowkey)
 
     elif isinstance(node, parser.Histogram):
         if node.name not in counter:
@@ -197,7 +221,7 @@ def runstep(node, symbols, counter, weight):
 
         datum = []
         for axis in node.axes:
-            component = runstep(axis.expression, symbols, counter, weight)
+            component = runstep(axis.expression, symbols, counter, weight, rowkey)
             if isinstance(component, data.Instance) and isinstance(component.value, (int, float)):
                 datum.append(component.value)
             elif component is None:
@@ -226,20 +250,28 @@ def run(source, dataset):
     if not isinstance(source, parser.AST):
         source = parser.parse(source)
 
+    output = dataset.newempty()
     counter = Counter()
     for entry in dataset:
         if not isinstance(entry, data.RecordInstance):
             raise parser.LanguageError("entries must be records (outermost array structure must be RecordArray)")
 
-        symbols = SymbolTable(fcns)
+        original = SymbolTable(fcns)
         for n in entry.fields():
-            symbols[n] = entry[n]
+            original[n] = entry[n]
+        modified = SymbolTable(original)
 
         counter.fill(1.0)
         for node in source:
-            runstep(node, symbols, counter, 1.0)
+            runstep(node, modified, counter, 1.0, entry.row)
 
-    return counter
+        if not modified.empty():
+            out = entry.newempty()
+            for n in modified:
+                out[n] = modified[n]
+            output.append(out)
+
+    return output, counter
 
 ################################################################################ tests
 
@@ -259,11 +291,29 @@ def test_dataset():
     return data.instantiate(events)
 
 def test_hist():
-    counter = run(r"""
+    output, counter = run(r"""
 hist met
 """, test_dataset())
+    assert output.tolist() == []
     assert (counter.entries, counter.value, counter.error) == (4, 4.0, 2.0)
     assert counter.keys() == ["0"]
     counts, edges = counter["0"].numpy()
     assert counts.tolist() == [1, 0, 0, 1, 0, 0, 1, 0, 0, 1]
     assert edges.tolist() == [100, 130, 160, 190, 220, 250, 280, 310, 340, 370, 400]
+
+def test_assign():
+    output, counter = run(r"""
+x = met
+""", test_dataset())
+    assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
+
+def test_expression():
+    output, counter = run(r"""
+x = met + 1
+""", test_dataset())
+    assert output.tolist() == [{"x": 101}, {"x": 201}, {"x": 301}, {"x": 401}]
+
+    output, counter = run(r"""
+x = met + 1 + met
+""", test_dataset())
+    assert output.tolist() == [{"x": 201}, {"x": 401}, {"x": 601}, {"x": 801}]

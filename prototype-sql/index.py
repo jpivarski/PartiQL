@@ -119,7 +119,20 @@ class ColKey:
         return "({0})".format(" ".join(repr(x) for x in self._index))
 
     def __eq__(self, other):
-        return isinstance(other, ColKey) and self._index == other._index
+        return type(self) is type(other) and self._index == other._index
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+class DerivedColKey(ColKey):
+    def __init__(self, node):
+        self._node = node
+
+    def __repr__(self):
+        return "DerivedColKey({0})".format(repr(self._node))
+
+    def __str__(self):
+        return "({0})".format(str(self._node))
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self._node == other._node

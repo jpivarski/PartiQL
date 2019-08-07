@@ -722,7 +722,7 @@ cut count(leptons) >= 3 {
            where one.charge != two.charge
            min by abs(mass(one, two) - 91.2)
 
-    third = x in leptons where x != pair.one and x != pair.two max by x.pt
+    third = x from leptons where x != pair.one and x != pair.two max by x.pt
 
     hist met      by regular(100, 0, 150) titled "transverse mass of the missing energy"
     hist third.pt by regular(100, 0, 150) titled "third lepton pt"
