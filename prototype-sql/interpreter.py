@@ -297,6 +297,17 @@ fcns["and"] = BooleanFunction("and", all)
 fcns["or"] = BooleanFunction("or", any)
 fcns["not"] = BooleanFunction("not", lambda iterate: not next(iterate))
 
+def ifthenelse(node, symbols, counter, weight, rowkey):
+    predicate = runstep(node.arguments[0], symbols, counter, weight, rowkey)
+    if not (isinstance(predicate, data.ValueInstance) and isinstance(predicate.value, bool)):
+        raise parser.LanguageError("predicte of if/then/else must be boolean", node.arguments[0].line, node.source)
+    if predicate.value:
+        return runstep(node.arguments[1], symbols, counter, weight, rowkey)
+    else:
+        return runstep(node.arguments[2], symbols, counter, weight, rowkey)
+
+fcns["if"] = ifthenelse
+
 ################################################################################ run
 
 def runstep(node, symbols, counter, weight, rowkey):
@@ -446,7 +457,7 @@ x = met
 """, test_dataset())
     assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
 
-def test_expression():
+def test_scalar():
     output, counter = run(r"""
 x = met + 1
 """, test_dataset())
@@ -526,3 +537,23 @@ x = (met == met or met == met)
 x = (met != met or met == met)
 """, test_dataset())
     assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = (not met == met)
+""", test_dataset())
+    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+
+    output, counter = run(r"""
+x = (not met != met)
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = (if 1 in stuff then 1 else -1)
+""", test_dataset())
+    assert output.tolist() == [{"x": -1}, {"x": 1}, {"x": -1}, {"x": -1}]
+
+    output, counter = run(r"""
+x = (if 2 in stuff then "a" else "b")
+""", test_dataset())
+    assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
