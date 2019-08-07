@@ -279,6 +279,24 @@ class InclusionFunction(EqualityFunction):
 fcns["in"] = InclusionFunction(False)
 fcns["not in"] = InclusionFunction(True)
 
+class BooleanFunction:
+    def __init__(self, name, fcn):
+        self._name, self._fcn = name, fcn
+
+    def __call__(self, node, symbols, counter, weight, rowkey):
+        def iterate():
+            for x in node.arguments:
+                arg = runstep(x, symbols, counter, weight, rowkey)
+                assert isinstance(arg, data.Instance)
+                if not (isinstance(arg, data.ValueInstance) and isinstance(arg.value, bool)):
+                    raise parser.LanguageError("arguments of '{0}' must be boolean".format(self._name), arg.line, arg.source)
+                yield arg.value
+        return data.ValueInstance(self._fcn(iterate()), rowkey, index.DerivedColKey(node))
+
+fcns["and"] = BooleanFunction("and", all)
+fcns["or"] = BooleanFunction("or", any)
+fcns["not"] = BooleanFunction("not", lambda iterate: not next(iterate))
+
 ################################################################################ run
 
 def runstep(node, symbols, counter, weight, rowkey):
@@ -488,3 +506,23 @@ x = 1 not in stuff
 x = 2 not in stuff
 """, test_dataset())
     assert output.tolist() == [{"x": True}, {"x": True}, {"x": False}, {"x": True}]
+
+    output, counter = run(r"""
+x = (met == met and met == met)
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = (met == met and met != met)
+""", test_dataset())
+    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+
+    output, counter = run(r"""
+x = (met == met or met == met)
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+
+    output, counter = run(r"""
+x = (met != met or met == met)
+""", test_dataset())
+    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
