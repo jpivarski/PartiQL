@@ -185,11 +185,8 @@ class Block(Expression):
     def _validate(self):
         if len(self.body) == 0:
             raise LanguageError("expression block may not be empty", self.line, self.source, None)
-        for x in self.body[:-1]:
-            if isinstance(x, Expression) or not isinstance(x, BlockItem):
-                raise LanguageError("every item in a block (surrounded by curly braces) must be an assignment or a histogram except the last one, which must be an expression with a return value", x.line, self.source, None)
         if not isinstance(self.body[-1], Expression):
-            raise LanguageError("every item in a block (surrounded by curly braces) must be an assignment or a histogram except the last one, which must be an expression with a return value", self.body[-1].line, self.source, None)
+            raise LanguageError("in a block expression (temporary assignments inside curly brackets), the last item (separated by semicolons or line endings) must be an expression (something with a return value)", self.body[-1].line, self.source, None)
 
 class Call(Expression):
     _fields = ("function", "arguments")
@@ -205,11 +202,6 @@ class Choose(Expression):
 
 class TableBlock(Expression):
     _fields = ("table", "body")
-
-    def _validate(self):
-        for x in self.body:
-            if isinstance(x, Expression) or not isinstance(x, BlockItem):
-                raise LanguageError("every item in a block defining a table (curly braces after a table definitino) must be an assignment or a histogram", x.line, self.source, None)
 
 class GroupBy(Expression):
     _fields = ("table", "quantifier")
@@ -229,21 +221,11 @@ class Axis(AST):
 class Vary(Statement):
     _fields = ("trials", "body")
 
-    def _validate(self):
-        for x in self.body:
-            if isinstance(x, Expression) or not isinstance(x, Statement):
-                raise LanguageError("every statement in a vary must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, self.source, None)
-
 class Trial(Named, AST):
     _fields = ("assignments", "named")
 
 class Cut(Named, Statement):
     _fields = ("expression", "weight", "named", "titled", "body")
-
-    def _validate(self):
-        for x in self.body:
-            if isinstance(x, Expression) or not isinstance(x, Statement):
-                raise LanguageError("every statement in a cut must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, self.source, None)
 
 def parse(source):
     start = parse.parser.parse(source)
