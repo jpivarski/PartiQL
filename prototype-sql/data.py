@@ -179,6 +179,9 @@ class ListInstance(Instance):
 class RecordInstance(Instance):
     _name = "Rec"
 
+    def fields(self):
+        return self.value.keys()
+
     def __repr__(self, indent=""):
         out = [indent, "{0}{1}{2}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
         for x in self.value.values():

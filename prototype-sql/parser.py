@@ -135,9 +135,40 @@ class AST:
                 return x
         return type(self)(*[do(getattr(self, n)) for n in self._fields], line=self.line, source=self.source)
 
+    def setnames(self, names):
+        for n in self._fields:
+            x = getattr(self, n)
+            if isinstance(x, list):
+                for y in x:
+                    if isinstance(y, AST):
+                        y.setnames(names)
+            elif isinstance(x, AST):
+                x.setnames(names)
+
 class Statement(AST): pass
 class BlockItem(Statement): pass
 class Expression(BlockItem): pass
+
+class Named:
+    def setnames(self, names):
+        if self.named is None:
+            self.name = str(len(names))
+        elif isinstance(self.named, Literal) and isinstance(self.named.value, str):
+            self.name = self.named.value
+        else:
+            raise LanguageError("name must be a constant string", self.line, self.source, None)
+        if self.name in names:
+            raise LanguageError("name {0} already exists".format(repr(self.name)), x.line, self.source, None)
+        names.add(self.name)
+
+        names = set()
+        for n in self._fields:
+            x = getattr(self, n)
+            if isinstance(x, list):
+                for y in x:
+                    y.setnames(names)
+            elif isinstance(x, AST):
+                x.setnames(names)
 
 class Literal(Expression):
     _fields = ("value",)
@@ -189,7 +220,7 @@ class MinMaxBy(Expression):
 class Assignment(BlockItem):
     _fields = ("symbol", "expression")
 
-class Histogram(BlockItem):
+class Histogram(Named, BlockItem):
     _fields = ("axes", "weight", "named", "titled")
 
 class Axis(AST):
@@ -203,10 +234,10 @@ class Vary(Statement):
             if isinstance(x, Expression) or not isinstance(x, Statement):
                 raise LanguageError("every statement in a vary must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, self.source, None)
 
-class Trial(AST):
+class Trial(Named, AST):
     _fields = ("assignments", "named")
 
-class Cut(Statement):
+class Cut(Named, Statement):
     _fields = ("expression", "weight", "named", "titled", "body")
 
     def _validate(self):
@@ -393,6 +424,11 @@ def parse(source):
         for x in out:
             if isinstance(x, Expression) or not isinstance(x, Statement):
                 raise LanguageError("every statement must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, source, None)
+
+    names = set()
+    for x in out:
+        x.setnames(names)
+
     return out
 
 parse.parser = lark.Lark(grammar)
