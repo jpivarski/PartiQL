@@ -349,21 +349,6 @@ def runstep(node, symbols, counter, weight, rowkey):
     elif isinstance(node, parser.GetAttr):
         raise NotImplementedError(node)
 
-    elif isinstance(node, parser.Choose):
-        if not isinstance(node.table, data.ListInstance):
-            raise parser.LanguageError("value to the right of 'from' must be a list", table.line, node.source)
-
-        raise NotImplementedError(node)
-
-    elif isinstance(node, parser.TableBlock):
-        raise NotImplementedError(node)
-
-    elif isinstance(node, parser.GroupBy):
-        raise NotImplementedError(node)
-
-    elif isinstance(node, parser.MinMaxBy):
-        raise NotImplementedError(node)
-
     elif isinstance(node, parser.Assignment):
         symbols[node.symbol] = runstep(node.expression, symbols, counter, weight, rowkey)
 
@@ -576,16 +561,3 @@ x = (if 1 in stuff then 1 else -1)
 x = (if 2 in stuff then "a" else "b")
 """, test_dataset())
     assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
-
-def test_table():
-#     output, counter = run(r"""
-# x = (a from muons)
-# """, test_dataset())
-#     print(output)
-#     assert False
-
-    output, counter = run(r"""
-x = (muons where iso == 0)
-""", test_dataset())
-    print(output)
-    assert False

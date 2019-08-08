@@ -44,17 +44,7 @@ weight:     "weight" "by" expression
 axes:       axis ("," axis)*
 axis:       expression ["by" expression]
 
-expression: scalar | tabular
-
-tabular:    minmaxby
-minmaxby:   groupby | groupby "min" "by" scalar -> minby | groupby "max" "by" scalar -> maxby
-groupby:    fields  | fields "group" "by" where
-fields:     where   | where "{" blockitems "}"
-where:      union   | union "where" scalar
-union:      cross   | cross "union" cross
-cross:      join    | join "cross" join
-join:       choose  | choose "join" choose
-choose:     scalar  | namelist "from" scalar
+expression: scalar
 
 scalar:     branch
 branch:     or         | "if" or "then" or "else" or
@@ -197,18 +187,6 @@ class GetItem(Expression):
 class GetAttr(Expression):
     _fields = ("object", "field")
 
-class Choose(Expression):
-    _fields = ("symbols", "table")
-
-class TableBlock(Expression):
-    _fields = ("table", "body")
-
-class GroupBy(Expression):
-    _fields = ("table", "quantifier")
-
-class MinMaxBy(Expression):
-    _fields = ("table", "ismin", "quantifier")
-
 class Assignment(BlockItem):
     _fields = ("symbol", "expression")
 
@@ -317,27 +295,6 @@ def parse(source):
             else:
                 assert False
 
-        elif node.data == "choose" and len(node.children) == 2:
-            return Choose(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
-
-        elif node.data == "namelist":
-            return [str(x) for x in node.children]
-
-        elif node.data in ("join", "cross", "union", "where") and len(node.children) == 2:
-            return Call(Symbol(node.data), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
-
-        elif node.data == "fields" and len(node.children) == 2:
-            return TableBlock(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
-
-        elif node.data == "groupby" and len(node.children) == 2:
-            return GroupBy(toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), source=source)
-
-        elif node.data == "minby" and len(node.children) == 2:
-            return MinMaxBy(toast(node.children[0], macros, defining), True, toast(node.children[1], macros, defining), source=source)
-
-        elif node.data == "maxby" and len(node.children) == 2:
-            return MinMaxBy(toast(node.children[0], macros, defining), False, toast(node.children[1], macros, defining), source=source)
-
         elif node.data == "assignment":
             return Assignment(str(node.children[0]), toast(node.children[1], macros, defining), line=node.children[0].line, source=source)
 
@@ -400,12 +357,6 @@ def parse(source):
             raise NotImplementedError("node: {0} numchildren: {1}\n{2}".format(node.data, len(node.children), node.pretty()))
 
     out = toast(start, {}, None)
-    if not parse.debugging:
-        if len(out) == 0:
-            raise LanguageError("source may not be empty", 1, source, None)
-        for x in out:
-            if isinstance(x, Expression) or not isinstance(x, Statement):
-                raise LanguageError("every statement must be an assignment, a histogram, a vary, or a cut, not an expression", x.line, source, None)
 
     names = set()
     for x in out:
@@ -414,12 +365,10 @@ def parse(source):
     return out
 
 parse.parser = lark.Lark(grammar)
-parse.debugging = False
 
 ################################################################################ tests
 
 def test_whitespace():
-    parse.debugging = True
     assert parse(r"") == []
     assert parse(r"""x
 """) == [Symbol("x")]
@@ -454,10 +403,8 @@ x""") == [Symbol("x")]
     assert parse(r"""/* multiline
                         comment */
 x""") == [Symbol("x")]
-    parse.debugging = False
 
 def test_expressions():
-    parse.debugging = True
     assert parse(r"x") == [Symbol("x")]
     assert parse(r"1") == [Literal(1)]
     assert parse(r"3.14") == [Literal(3.14)]
@@ -495,10 +442,8 @@ def test_expressions():
     assert parse(r"p or q and r") == [Call(Symbol("or"), [Symbol("p"), Call(Symbol("and"), [Symbol("q"), Symbol("r")])])]
     assert parse(r"(p or q) and r") == [Call(Symbol("and"), [Call(Symbol("or"), [Symbol("p"), Symbol("q")]), Symbol("r")])]
     assert parse(r"if x > 0 then 1 else -1") == [Call(Symbol("if"), [Call(Symbol(">"), [Symbol("x"), Literal(0)]), Literal(1), Call(Symbol("*-1"), [Literal(1)])])]
-    parse.debugging = False
 
 def test_assign():
-    parse.debugging = True
     assert parse(r"""
 x = 5
 x + 2
@@ -515,33 +460,9 @@ y = {
 y""") == [Assignment("y", Block([Assignment("x", Literal(5)), Call(Symbol("+"), [Symbol("x"), Literal(2)])])), Symbol("y")]
     assert parse(r"{x + 2}") == [Block([Call(Symbol("+"), [Symbol("x"), Literal(2)])])]
     assert parse(r"if x > 0 then {1} else {-1}") == [Call(Symbol("if"), [Call(Symbol(">"), [Symbol("x"), Literal(0)]), Block([Literal(1)]), Block([Call(Symbol("*-1"), [Literal(1)])])])]
-    parse.debugging = False
 
 def test_table():
-    parse.debugging = True
-    assert parse(r"x from table") == [Choose(["x"], Symbol("table"))]
-    assert parse(r"(x, y) from table") == [Choose(["x", "y"], Symbol("table"))]
-    assert parse(r"f((x, y) from table)") == [Call(Symbol("f"), [Choose(["x", "y"], Symbol("table"))])]
-    assert parse(r"f(x, y from table)") == [Call(Symbol("f"), [Symbol("x"), Choose(["y"], Symbol("table"))])]
-    assert parse(r"x from X join y from Y") == [Call(Symbol("join"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))])]
-    assert parse(r"x from X cross y from Y") == [Call(Symbol("cross"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))])]
-    assert parse(r"x from X union y from Y") == [Call(Symbol("union"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))])]
-    assert parse(r"x from X where x > 0") == [Call(Symbol("where"), [Choose(["x"], Symbol("X")), Call(Symbol(">"), [Symbol("x"), Literal(0)])])]
-    assert parse(r"x from X cross y from Y join z from Z") == [Call(Symbol("cross"), [Choose(["x"], Symbol("X")), Call(Symbol("join"), [Choose(["y"], Symbol("Y")), Choose(["z"], Symbol("Z"))])])]
-    assert parse(r"(x from X cross y from Y) join z from Z") == [Call(Symbol("join"), [Call(Symbol("cross"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))]), Choose(["z"], Symbol("Z"))])]
-    assert parse(r"x from X union y from Y cross z from Z") == [Call(Symbol("union"), [Choose(["x"], Symbol("X")), Call(Symbol("cross"), [Choose(["y"], Symbol("Y")), Choose(["z"], Symbol("Z"))])])]
-    assert parse(r"(x from X union y from Y) cross z from Z") == [Call(Symbol("cross"), [Call(Symbol("union"), [Choose(["x"], Symbol("X")), Choose(["y"], Symbol("Y"))]), Choose(["z"], Symbol("Z"))])]
-    assert parse(r"(x from X where x > 0) union y from Y") == [Call(Symbol("union"), [Call(Symbol("where"), [Choose(["x"], Symbol("X")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), Choose(["y"], Symbol("Y"))])]
-    assert parse(r"x from table {y = x}") == [TableBlock(Choose(["x"], Symbol("table")), [Assignment("y", Symbol("x"))])]
-    assert parse(r"x from table where x > 0 {y = x}") == [TableBlock(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), [Assignment("y", Symbol("x"))])]
-    assert parse(r"x from table group by table") == [GroupBy(Choose(["x"], Symbol("table")), Symbol("table"))]
-    assert parse(r"x from table where x > 0 group by table") == [GroupBy(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), Symbol("table"))]
-    assert parse(r"x from table {y = x} group by table") == [GroupBy(TableBlock(Choose(["x"], Symbol("table")), [Assignment("y", Symbol("x"))]), Symbol("table"))]
-    assert parse(r"x from table where x > 0 {y = x} group by table") == [GroupBy(TableBlock(Call(Symbol("where"), [Choose(["x"], Symbol("table")), Call(Symbol(">"), [Symbol("x"), Literal(0)])]), [Assignment("y", Symbol("x"))]), Symbol("table"))]
-    assert parse(r"x from table min by x") == [MinMaxBy(Choose(["x"], Symbol("table")), True, Symbol("x"))]
-    assert parse(r"x from table max by x") == [MinMaxBy(Choose(["x"], Symbol("table")), False, Symbol("x"))]
-    assert parse(r"x from table group by table min by x") == [MinMaxBy(GroupBy(Choose(["x"], Symbol("table")), Symbol("table")), True, Symbol("x"))]
-    parse.debugging = False
+    pass
 
 def test_histogram():
     assert parse(r"hist pt") == [Histogram([Axis(Symbol("pt"), None)], None, None, None)]
@@ -693,20 +614,3 @@ def f(y) {
 }
 f(x)
 """) == [Histogram([Axis(Symbol("x"), None)], None, None, None)]
-
-def test_benchmark8():
-    # https://github.com/iris-hep/adl-benchmarks-index/
-    parse(r"""
-leptons = electrons union muons
-
-cut count(leptons) >= 3 {
-    pair = (one, two) from electrons union (one, two) from muons
-           where one.charge != two.charge
-           min by abs(mass(one, two) - 91.2)
-
-    third = x from leptons where x != pair.one and x != pair.two max by x.pt
-
-    hist met      by regular(100, 0, 150) titled "transverse mass of the missing energy"
-    hist third.pt by regular(100, 0, 150) titled "third lepton pt"
-}
-""")
