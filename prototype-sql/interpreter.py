@@ -42,7 +42,6 @@ class SymbolTable:
 class Counter:
     def __init__(self, line=None, source=None):
         self._line, self._source = line, source
-        self._table = {}
         self._n = 0
         self._sumw = 0.0
         self._sumw2 = 0.0
@@ -60,12 +59,20 @@ class Counter:
         return numpy.sqrt(self._sumw2)
 
     def __repr__(self):
-        return "<Counter {0} ({1} +- {2})>".format(self.entries, self.value, self.error)
+        return "<{0} {1} ({2} +- {3})>".format(type(self).__name__, self.entries, self.value, self.error)
 
     def fill(self, w):
         self._n += 1
         self._sumw += w
         self._sumw2 += w**2
+
+class DirectoryCounter(Counter):
+    def __init__(self, line=None, source=None):
+        super(DirectoryCounter, self).__init__(line=line, source=source)
+        self._n = 0
+        self._sumw = 0.0
+        self._sumw2 = 0.0
+        self._table = {}
 
     def iterkeys(self, recursive=False):
         for n, x in self._table.items():
@@ -121,7 +128,8 @@ class Regular(Binning):
 
 class Histogram(Counter):
     def __init__(self, binnings, line=None, source=None):
-        self._binnings, self._line, self._source = binnings, line, source
+        super(Histogram, self).__init__(line=line, source=source)
+        self._binnings = binnings
         self._data = []
         self._weights = []
 
@@ -130,6 +138,9 @@ class Histogram(Counter):
 
     def fill(self, x, w):
         assert len(x) == len(self._binnings)
+        self._n += 1
+        self._sumw += w
+        self._sumw2 += w**2
         self._data.append(x)
         self._weights.append([w])
 
@@ -308,6 +319,11 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
 
 fcns["if"] = ifthenelse
 
+def where(node, symbols, counter, weight, rowkey):
+    raise NotImplementedError
+
+fcns["where"] = where
+
 ################################################################################ run
 
 def runstep(node, symbols, counter, weight, rowkey):
@@ -334,6 +350,9 @@ def runstep(node, symbols, counter, weight, rowkey):
         raise NotImplementedError(node)
 
     elif isinstance(node, parser.Choose):
+        if not isinstance(node.table, data.ListInstance):
+            raise parser.LanguageError("value to the right of 'from' must be a list", table.line, node.source)
+
         raise NotImplementedError(node)
 
     elif isinstance(node, parser.TableBlock):
@@ -400,7 +419,7 @@ def run(source, dataset):
         source = parser.parse(source)
 
     output = dataset.newempty()
-    counter = Counter()
+    counter = DirectoryCounter()
     for entry in dataset:
         if not isinstance(entry, data.RecordInstance):
             raise parser.LanguageError("entries must be records (outermost array structure must be RecordArray)")
@@ -557,3 +576,16 @@ x = (if 1 in stuff then 1 else -1)
 x = (if 2 in stuff then "a" else "b")
 """, test_dataset())
     assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
+
+def test_table():
+#     output, counter = run(r"""
+# x = (a from muons)
+# """, test_dataset())
+#     print(output)
+#     assert False
+
+    output, counter = run(r"""
+x = (muons where iso == 0)
+""", test_dataset())
+    print(output)
+    assert False
