@@ -199,6 +199,9 @@ class RecordInstance(Instance):
         out.append(indent + "}")
         return "".join(out)
 
+    def __contains__(self, where):
+        return where in self.value
+
     def __getitem__(self, where):
         return self.value[where]
 

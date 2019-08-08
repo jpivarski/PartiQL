@@ -52,9 +52,8 @@ minmaxby:   groupby    | minmaxby "min" "by" scalar -> minby | minmaxby "max" "b
 groupby:    union      | groupby "group" "by" scalar
 union:      cross      | union "union" cross
 cross:      join       | cross "cross" join
-join:       where      | join "join" where
-where:      with       | where "where" scalar
-with:       pack       | with "with" "{" blockitems "}"
+join:       wherewith  | join "join" wherewith
+wherewith:  pack       | wherewith "with" "{" blockitems "}" -> with | wherewith "where" scalar -> where
 pack:       scalar     | scalar "as" namelist
 
 scalar:     branch
@@ -393,7 +392,7 @@ def parse(source):
             weight, named, titled = getattributes(node.children[1:-1], source, macros, defining)
             return Cut(toast(node.children[0], macros, defining), weight, named, titled, toast(node.children[-1], macros, defining), source=source)
 
-        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "union", "cross", "join", "where", "with", "pack", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
+        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "union", "cross", "join", "wherewith", "pack", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             out = toast(node.children[0], macros, defining)
             if isinstance(out, MacroBlock) and len(out.body) == 1:
                 return out.body[0]
