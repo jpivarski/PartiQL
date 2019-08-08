@@ -50,9 +50,21 @@ has:        "has" namelist
 tabular:    minmaxby
 minmaxby:   groupby    | minmaxby "min" "by" scalar -> minby | minmaxby "max" "by" scalar -> maxby
 groupby:    union      | groupby "group" "by" scalar
+
+
 union:      cross      | union "union" cross
 cross:      join       | cross "cross" join
 join:       wherewith  | join "join" wherewith
+
+// FIXME: what I called "union" is actually a full outer join.
+// Get closer to SQL by supporting
+//     | join ["inner"] "join" wherewith -> innerjoin
+//     | join "left" ["outer"] "join" wherewith -> leftouter
+//     | join "right" ["outer"] "join" wherewith -> rightouter
+//     | join ["full"] "outer" "join" wherewith -> fullouter
+// An SQL "union" ignores the key and just concatenates. I don't like that name.
+// All in the same precedence class.
+
 wherewith:  pack       | wherewith "with" "{" blockitems "}" -> with | wherewith "where" scalar -> where
 pack:       scalar     | scalar "as" namelist
 
