@@ -164,7 +164,8 @@ class NumericalFunction:
     def __call__(self, node, symbols, counter, weight, rowkey):
         args = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
         for x in args:
-            assert isinstance(x, data.Instance)
+            if x is None:
+                return None
             if not (isinstance(x, data.ValueInstance) and isinstance(x.value, (int, float))):
                 raise parser.LanguageError("all arguments in {0} must be numbers (not lists or records)".format(self._name), x.line, x.source)
 
@@ -265,6 +266,8 @@ class EqualityFunction:
 
     def __call__(self, node, symbols, counter, weight, rowkey):
         args = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
+        if any(x is None for x in args):
+            return None
         assert len(args) == 2
         assert isinstance(args[0], data.Instance) and isinstance(args[1], data.Instance)
         return data.ValueInstance(self._evaluate(node, args[0], args[1]), rowkey, index.DerivedColKey(node))
@@ -291,38 +294,88 @@ fcns["in"] = InclusionFunction(False)
 fcns["not in"] = InclusionFunction(True)
 
 class BooleanFunction:
-    def __init__(self, name, fcn):
-        self._name, self._fcn = name, fcn
-
     def __call__(self, node, symbols, counter, weight, rowkey):
         def iterate():
             for x in node.arguments:
                 arg = runstep(x, symbols, counter, weight, rowkey)
-                assert isinstance(arg, data.Instance)
-                if not (isinstance(arg, data.ValueInstance) and isinstance(arg.value, bool)):
-                    raise parser.LanguageError("arguments of '{0}' must be boolean".format(self._name), arg.line, arg.source)
-                yield arg.value
+                if arg is None:
+                    yield None
+                else:
+                    if not (isinstance(arg, data.ValueInstance) and isinstance(arg.value, bool)):
+                        raise parser.LanguageError("arguments of '{0}' must be boolean".format(self._name), arg.line, arg.source)
+                    yield arg.value
         return data.ValueInstance(self._fcn(iterate()), rowkey, index.DerivedColKey(node))
 
-fcns["and"] = BooleanFunction("and", all)
-fcns["or"] = BooleanFunction("or", any)
-fcns["not"] = BooleanFunction("not", lambda iterate: not next(iterate))
+# Three-valued logic
+# https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics
+
+class AndFunction(BooleanFunction):
+    @property
+    def _name(self):
+        return "and"
+
+    def _fcn(self, iterate):
+        first = next(iterate)
+        if first is False:
+            return False
+        elif first is None:
+            second = next(iterate)
+            if second is False:
+                return False
+            else:
+                return None
+        elif first is True:
+            return next(iterate)
+
+class OrFunction(BooleanFunction):
+    @property
+    def _name(self):
+        return "or"
+
+    def _fcn(self, iterate):
+        first = next(iterate)
+        if first is False:
+            return next(iterate)
+        elif first is None:
+            second = next(iterate)
+            if second is True:
+                return True
+            else:
+                return None
+        elif first is True:
+            return True
+
+class NotFunction(BooleanFunction):
+    @property
+    def _name(self):
+        return "not"
+
+    def _fcn(self, iterate):
+        first = next(iterate)
+        if first is None:
+            return None
+        else:
+            return not first
+
+fcns["and"] = AndFunction()
+fcns["or"] = OrFunction()
+fcns["not"] = NotFunction()
 
 def ifthenelse(node, symbols, counter, weight, rowkey):
     predicate = runstep(node.arguments[0], symbols, counter, weight, rowkey)
+    if predicate is None:
+        return None
+
     if not (isinstance(predicate, data.ValueInstance) and isinstance(predicate.value, bool)):
         raise parser.LanguageError("predicte of if/then/else must be boolean", node.arguments[0].line, node.source)
     if predicate.value:
         return runstep(node.arguments[1], symbols, counter, weight, rowkey)
+    elif len(node.arguments) == 2:
+        return None
     else:
         return runstep(node.arguments[2], symbols, counter, weight, rowkey)
 
 fcns["if"] = ifthenelse
-
-def where(node, symbols, counter, weight, rowkey):
-    raise NotImplementedError
-
-fcns["where"] = where
 
 ################################################################################ run
 

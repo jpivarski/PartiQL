@@ -46,8 +46,13 @@ axis:       expression ["by" expression]
 
 expression: scalar
 
+
+
+where:      pack       | pack "where" scalar
+pack:       scalar     | scalar "as" namelist
+
 scalar:     branch
-branch:     or         | "if" or "then" or "else" or
+branch:     or         | "if" or "then" or ["else" or]
 or:         and        | and "or" and
 and:        not        | not "and" not
 not:        comparison | "not" not -> isnot
@@ -268,6 +273,9 @@ def parse(source):
 
         elif node.data in ("pos", "neg", "isnot") and len(node.children) == 1:
             return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros, defining)], source=source)
+
+        elif node.data == "branch" and len(node.children) == 2:
+            return Call(Symbol("if"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
         elif node.data == "branch" and len(node.children) == 3:
             return Call(Symbol("if"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining), toast(node.children[2], macros, defining)], source=source)
