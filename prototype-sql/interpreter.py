@@ -414,6 +414,11 @@ def crossfcn(node, symbols, counter, weight, rowkey):
 
 fcns["cross"] = crossfcn
 
+def unionfcn(node, symbols, counter, weight, rowkey):
+    raise NotImplementedError
+
+fcns["union"] = unionfcn
+
 ################################################################################ run
 
 def runstep(node, symbols, counter, weight, rowkey):
@@ -462,7 +467,30 @@ def runstep(node, symbols, counter, weight, rowkey):
         return out
 
     elif isinstance(node, parser.With):
-        raise NotImplementedError(node)
+        container = runstep(node.container, symbols, counter, weight, rowkey)
+        if container is None:
+            return None
+
+        if not isinstance(container, data.ListInstance):
+            raise parser.LanguageError("value to the left of 'with' must be a list", node.container.line, node.source)
+
+        assert rowkey == container.row
+        out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+
+        for x in container.value:
+            if not isinstance(x, data.RecordInstance):
+                raise parser.LanguageError("value to the left of 'width' must contain records", node.container.line, node.source)
+
+            subtable = SymbolTable(symbols)
+            for n in x.fields():
+                subtable[n] = x[n]
+
+            for subnode in node.body:
+                runstep(subnode, subtable, counter, weight, x.row)
+
+            out.append(data.RecordInstance({n: subtable[n] for n in subtable}, x.row, out.col))
+
+        return out
 
     elif isinstance(node, parser.Has):
         raise NotImplementedError(node)
@@ -696,6 +724,26 @@ nested = muons as (m1, m2)
 """, test_dataset())
 
     assert output.tolist() == [{"nested": [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}]}]
+
+    output, counter = run(r"""
+nested = stuff
+""", test_dataset())
+    assert output.tolist() == [{"nested": []}, {"nested": [1]}, {"nested": [2, 2]}, {"nested": [3, 3, 3]}]
+
+    output, counter = run(r"""
+nested = stuff as x
+""", test_dataset())
+    assert output.tolist() == [{"nested": []}, {"nested": [{"x": 1}]}, {"nested": [{"x": 2}, {"x": 2}]}, {"nested": [{"x": 3}, {"x": 3}, {"x": 3}]}]
+
+    output, counter = run(r"""
+leptoquarks = muons with { iso2 = 2*iso }
+""", test_dataset())
+    assert output.tolist() == [{"leptoquarks": [{"pt": 1.1, "iso": 0, "iso2": 0}, {"pt": 2.2, "iso": 0, "iso2": 0}, {"pt": 3.3, "iso": 100, "iso2": 200}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"leptoquarks": [{"pt": 6.6, "iso": 1, "iso2": 2}, {"pt": 7.7, "iso": 2, "iso2": 4}, {"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+
+    output, counter = run(r"""
+leptoquarks = muons with { iso2 = 2*iso; iso10 = 10*iso }
+""", test_dataset())
+    output.tolist() == [{"leptoquarks": [{"pt": 1.1, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 2.2, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 3.3, "iso": 100, "iso2": 200, "iso10": 1000}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100, "iso10": 500}, {"pt": 5.5, "iso": 30, "iso2": 60, "iso10": 300}]}, {"leptoquarks": [{"pt": 6.6, "iso": 1, "iso2": 2, "iso10": 10}, {"pt": 7.7, "iso": 2, "iso2": 4, "iso10": 20}, {"pt": 8.8, "iso": 3, "iso2": 6, "iso10": 30}, {"pt": 9.9, "iso": 4, "iso2": 8, "iso10": 40}]}]
 
     output, counter = run(r"""
 leptoquarks = muons cross jets

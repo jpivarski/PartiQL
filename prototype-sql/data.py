@@ -194,8 +194,8 @@ class RecordInstance(Instance):
 
     def __repr__(self, indent=""):
         out = [indent, "{0}{1}{2}".format(self.name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
-        for x in self.value.values():
-            out.append(x.__repr__(indent + "    ") + "\n")
+        for n, x in self.value.items():
+            out.append(indent + "    " + n + " = " + x.__repr__(indent + "    ").lstrip(" ") + "\n")
         out.append(indent + "}")
         return "".join(out)
 
