@@ -24,18 +24,8 @@ class Ref:
     def __ne__(self, other):
         return not self.__eq__(other)
 
-class JoinRef(Ref):
-    def __init__(self, left, right):
-        self.left, self.right = left, right
-
-    def __repr__(self):
-        return "JoinRef({0}, {1})".format(repr(self.left), repr(self.right))
-
-    def __str__(self):
-        return "{0}.{1}".format(str(self.left), str(self.right))
-
-    def __eq__(self, other):
-        return type(other) is JoinRef and self.left == other.left and self.right == other.right
+    def __hash__(self):
+        return hash((Ref, self.num))
 
 class CrossRef(Ref):
     @staticmethod
@@ -60,18 +50,8 @@ class CrossRef(Ref):
     def __eq__(self, other):
         return type(other) is CrossRef and self.left == other.left and self.right == other.right
 
-class UnionRef(Ref):
-    def __init__(self, left, right):
-        self.left, self.right = left, right
-
-    def __repr__(self):
-        return "UnionRef({0}, {1})".format(repr(self.left), repr(self.right))
-
-    def __str__(self):
-        return "{0}+{1}".format(str(self.left), str(self.right))
-
-    def __eq__(self, other):
-        return type(other) is UnionRef and self.left == other.left and self.right == other.right
+    def __hash__(self):
+        return hash((CrossRef, self.left, self.right))
 
 class RowIndex:
     "RowIndex is array-like, with each entry specifying the sequence of integer indexes as a path from root to tree-node. Referential identity is important, as it determines which arrays are compatible in ufunc-like operations."
@@ -98,6 +78,9 @@ class RowIndex:
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((RowIndex, self.array, self.ref))
 
     def same(self, other):
         return isinstance(other, RowIndex) and self.ref == other.ref
@@ -139,6 +122,9 @@ class ColIndex:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __hash__(self):
+        return hash((ColIndex, self.path))
+
     def __getitem__(self, where):
         if isinstance(where, int):
             return ColKey((self.path[where],))
@@ -171,6 +157,9 @@ class RowKey:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __hash__(self):
+        return hash((RowKey, self.index, self.ref))
+
 class ColKey:
     "ColKey is an element of a ColIndex, representing a unique column by value."
 
@@ -189,6 +178,9 @@ class ColKey:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __hash__(self):
+        return hash((ColKey, self.index))
+
 class DerivedColKey(ColKey):
     def __init__(self, node):
         self.node = node
@@ -201,3 +193,6 @@ class DerivedColKey(ColKey):
 
     def __eq__(self, other):
         return type(self) is type(other) and self.node == other.node
+
+    def __hash__(self):
+        return hash((DerivedKey, self.node))

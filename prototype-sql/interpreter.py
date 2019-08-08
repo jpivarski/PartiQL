@@ -449,7 +449,30 @@ def crossfcn(node, symbols, counter, weight, rowkey):
 fcns["cross"] = crossfcn
 
 def unionfcn(node, symbols, counter, weight, rowkey):
-    raise NotImplementedError
+    left, right = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
+    if left is None or right is None:
+        return None
+
+    if not isinstance(left, data.ListInstance):
+        raise parser.LanguageError("left and right of 'union' must be lists", node.arguments[0].line, node.arguments[0].source)
+    if not isinstance(right, data.ListInstance):
+        raise parser.LanguageError("left and right of 'union' must be lists", node.arguments[1].line, node.arguments[1].source)
+
+    assert rowkey == left.row and rowkey == right.row
+    out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+    seen = set()
+
+    for x in left.value:
+        if x.row not in seen:
+            out.append(x)
+            seen.add(x.row)
+
+    for y in right.value:
+        if y.row not in seen:
+            out.append(y)
+            seen.add(y.row)
+
+    return out
 
 fcns["union"] = unionfcn
 
@@ -783,6 +806,11 @@ leptoquarks = muons with { iso2 = 2*iso; iso10 = 10*iso }
 leptoquarks = muons where iso > 2
 """, test_dataset())
     assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+
+    output, counter = run(r"""
+leptoquarks = muons where iso > 2 union muons
+""", test_dataset())
+    assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
 
     output, counter = run(r"""
 leptoquarks = muons cross jets

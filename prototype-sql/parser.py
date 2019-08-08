@@ -126,6 +126,14 @@ class AST:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __hash__(self):
+        def do(x):
+            if isinstance(x, list):
+                return tuple(x)
+            else:
+                return x
+        return hash((type(self),) + tuple(do(getattr(self, n)) for n in self.fields))
+
     def replace(self, replacements):
         def do(x):
             if isinstance(x, list):
