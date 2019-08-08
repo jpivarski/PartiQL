@@ -1,6 +1,7 @@
 # Simple, slow interpreter of row-wise data. Everything is a data.Instance.
 
 import math
+import itertools
 
 import numpy
 
@@ -382,22 +383,34 @@ def crossfcn(node, symbols, counter, weight, rowkey):
     if left is None or right is None:
         return None
 
-    if isinstance(left, data.ListInstance):
-        raise parser.LanguageError("left and right of 'cross' must be lists", left.line, left.source)
-    if isinstance(right, data.ListInstance):
-        raise parser.LanguageError("left and right of 'cross' must be lists", right.line, right.source)
-
-    print("-----------------------------")
-    print(rowkey)
-    print(left)
-    print(right)
+    if not isinstance(left, data.ListInstance):
+        raise parser.LanguageError("left and right of 'cross' must be lists", node.arguments[0].line, node.arguments[0].source)
+    if not isinstance(right, data.ListInstance):
+        raise parser.LanguageError("left and right of 'cross' must be lists", node.arguments[1].line, node.arguments[1].source)
 
     assert rowkey == left.row and rowkey == right.row
+    out = data.ListInstance([], rowkey, index.DerivedColKey(node))
 
+    i = 0
+    for x in left.value:
+        for y in right.value:
+            if not isinstance(x, data.RecordInstance):
+                raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[0].line, node.arguments[0].source)
+            if not isinstance(y, data.RecordInstance):
+                raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[1].line, node.arguments[1].source)
 
+            row = index.RowKey(rowkey.index + (i,), index.CrossRef(x.row.ref, y.row.ref))
+            i += 1
 
+            obj = data.RecordInstance({}, row, out.col)
+            for n in y.fields():
+                obj[n] = y[n]
+            for n in x.fields():
+                obj[n] = x[n]
 
+            out.append(obj)
 
+    return out
 
 fcns["cross"] = crossfcn
 
@@ -415,6 +428,8 @@ def runstep(node, symbols, counter, weight, rowkey):
 
     elif isinstance(node, parser.Call):
         function = runstep(node.function, symbols, counter, weight, rowkey)
+        if function is None:
+            return None
         if callable(function):
             return function(node, symbols, counter, weight, rowkey)
         else:
@@ -426,8 +441,36 @@ def runstep(node, symbols, counter, weight, rowkey):
     elif isinstance(node, parser.GetAttr):
         raise NotImplementedError(node)
 
+    elif isinstance(node, parser.Pack):
+        container = runstep(node.container, symbols, counter, weight, rowkey)
+        if container is None:
+            return None
+
+        if not isinstance(container, data.ListInstance):
+            raise parser.LanguageError("value to the left of 'as' must be a list", node.container.line, node.source)
+
+        assert rowkey == container.row
+        out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+
+        for i, tup in enumerate(itertools.combinations(container.value, len(node.namelist))):
+            row = index.RowKey(rowkey.index + (i,), index.CrossRef.fromtuple(x.row.ref for x in tup))
+            obj = data.RecordInstance({}, row, out.col)
+            for n, x in zip(node.namelist, tup):
+                obj[n] = x
+            out.append(obj)
+
+        return out
+
+    elif isinstance(node, parser.With):
+        raise NotImplementedError(node)
+
+    elif isinstance(node, parser.Has):
+        raise NotImplementedError(node)
+
     elif isinstance(node, parser.Assignment):
-        symbols[node.symbol] = runstep(node.expression, symbols, counter, weight, rowkey)
+        value = runstep(node.expression, symbols, counter, weight, rowkey)
+        if value is not None:
+            symbols[node.symbol] = value
 
     elif isinstance(node, parser.Histogram):
         if node.name not in counter:
@@ -475,6 +518,9 @@ def runstep(node, symbols, counter, weight, rowkey):
 
     elif isinstance(node, parser.Cut):
         raise NotImplementedError(node)
+
+    else:
+        assert False, repr(type(node), node)
 
 def run(source, dataset):
     if not isinstance(source, parser.AST):
@@ -639,9 +685,19 @@ x = (if 2 in stuff then "a" else "b")
 """, test_dataset())
     assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
 
-# def test_tabular():
-#     output, counter = run(r"""
-# leptoquarks = muons cross jets
-# """, test_dataset())
-#     # print(output)
-#     assert False
+def test_tabular():
+    output, counter = run(r"""
+nested = muons as mu
+""", test_dataset())
+    assert output.tolist() == [{"nested": [{"mu": {"pt": 1.1, "iso": 0}}, {"mu": {"pt": 2.2, "iso": 0}}, {"mu": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"mu": {"pt": 4.4, "iso": 50}}, {"mu": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"mu": {"pt": 6.6, "iso": 1}}, {"mu": {"pt": 7.7, "iso": 2}}, {"mu": {"pt": 8.8, "iso": 3}}, {"mu": {"pt": 9.9, "iso": 4}}]}]
+
+    output, counter = run(r"""
+nested = muons as (m1, m2)
+""", test_dataset())
+
+    assert output.tolist() == [{"nested": [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}]}]
+
+    output, counter = run(r"""
+leptoquarks = muons cross jets
+""", test_dataset())
+    assert output.tolist() == [{"leptoquarks": [{"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 5.5, "mass": 15, "iso": 30}, {"pt": 5.5, "mass": 15, "iso": 30}]}, {"leptoquarks": [{"pt": 6.6, "mass": 9, "iso": 1}, {"pt": 6.6, "mass": 8, "iso": 1}, {"pt": 6.6, "mass": 7, "iso": 1}, {"pt": 6.6, "mass": 6, "iso": 1}, {"pt": 7.7, "mass": 9, "iso": 2}, {"pt": 7.7, "mass": 8, "iso": 2}, {"pt": 7.7, "mass": 7, "iso": 2}, {"pt": 7.7, "mass": 6, "iso": 2}, {"pt": 8.8, "mass": 9, "iso": 3}, {"pt": 8.8, "mass": 8, "iso": 3}, {"pt": 8.8, "mass": 7, "iso": 3}, {"pt": 8.8, "mass": 6, "iso": 3}, {"pt": 9.9, "mass": 9, "iso": 4}, {"pt": 9.9, "mass": 8, "iso": 4}, {"pt": 9.9, "mass": 7, "iso": 4}, {"pt": 9.9, "mass": 6, "iso": 4}]}]

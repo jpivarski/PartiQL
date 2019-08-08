@@ -38,6 +38,16 @@ class JoinRef(Ref):
         return type(other) is JoinRef and self.left == other.left and self.right == other.right
 
 class CrossRef(Ref):
+    @staticmethod
+    def fromtuple(tup):
+        if not isinstance(tup, tuple):
+            tup = tuple(tup)
+        assert len(tup) != 0
+        if len(tup) == 1:
+            return tup[0]
+        else:
+            return CrossRef(tup[0], CrossRef.fromtuple(tup[1:]))
+
     def __init__(self, left, right):
         self.left, self.right = left, right
 
@@ -160,12 +170,6 @@ class RowKey:
 
     def __ne__(self, other):
         return not self.__eq__(other)
-
-    def tail(self, head):
-        assert isinstance(head, RowKey)
-        assert len(head.index) <= len(self.index)
-        assert head.index == self.index[:len(head.index)]
-        return self.index[len(head.index):]
 
 class ColKey:
     "ColKey is an element of a ColIndex, representing a unique column by value."
