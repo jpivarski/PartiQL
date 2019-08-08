@@ -98,11 +98,11 @@ COMMENT: "#" /.*/ | "//" /.*/ | "/*" /(.|\n|\r)*/ "*/"
 """
 
 class AST:
-    _fields = ()
+    fields = ()
 
     def __init__(self, *args, line=None, source=None):
         self.line, self.source = line, source
-        for n, x in zip(self._fields, args):
+        for n, x in zip(self.fields, args):
             setattr(self, n, x)
             if self.line is None:
                 if isinstance(x, list):
@@ -112,16 +112,16 @@ class AST:
                     self.line = getattr(x, "line", None)
         if self.line is not None:
             assert self.source is not None
-        self._validate()
+        self.validate()
 
-    def _validate(self):
+    def validate(self):
         pass
 
     def __repr__(self):
-        return "{0}({1})".format(type(self).__name__, ", ".join(repr(getattr(self, n)) for n in self._fields))
+        return "{0}({1})".format(type(self).__name__, ", ".join(repr(getattr(self, n)) for n in self.fields))
 
     def __eq__(self, other):
-        return type(self) is type(other) and all(getattr(self, n) == getattr(other, n) for n in self._fields)
+        return type(self) is type(other) and all(getattr(self, n) == getattr(other, n) for n in self.fields)
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -134,10 +134,10 @@ class AST:
                 return x.replace(replacements)
             else:
                 return x
-        return type(self)(*[do(getattr(self, n)) for n in self._fields], line=self.line, source=self.source)
+        return type(self)(*[do(getattr(self, n)) for n in self.fields], line=self.line, source=self.source)
 
     def setnames(self, names):
-        for n in self._fields:
+        for n in self.fields:
             x = getattr(self, n)
             if isinstance(x, list):
                 for y in x:
@@ -163,7 +163,7 @@ class Named:
         names.add(self.name)
 
         names = set()
-        for n in self._fields:
+        for n in self.fields:
             x = getattr(self, n)
             if isinstance(x, list):
                 for y in x:
@@ -172,58 +172,58 @@ class Named:
                 x.setnames(names)
 
 class Literal(Expression):
-    _fields = ("value",)
+    fields = ("value",)
 
 class Symbol(Expression):
-    _fields = ("symbol",)
+    fields = ("symbol",)
 
     def replace(self, replacements):
         return replacements.get(self.symbol, self)
 
 class Block(Expression):
-    _fields = ("body",)
+    fields = ("body",)
 
-    def _validate(self):
+    def validate(self):
         if len(self.body) == 0:
             raise LanguageError("expression block may not be empty", self.line, self.source, None)
         if not isinstance(self.body[-1], Expression):
             raise LanguageError("in a block expression (temporary assignments inside curly brackets), the last item (separated by semicolons or line endings) must be an expression (something with a return value)", self.body[-1].line, self.source, None)
 
 class Call(Expression):
-    _fields = ("function", "arguments")
+    fields = ("function", "arguments")
 
 class GetItem(Expression):
-    _fields = ("container", "where")
+    fields = ("container", "where")
 
 class GetAttr(Expression):
-    _fields = ("object", "field")
+    fields = ("object", "field")
 
 class Pack(Expression):
-    _fields = ("container", "namelist")
+    fields = ("container", "namelist")
 
 class With(Expression):
-    _fields = ("container", "body")
+    fields = ("container", "body")
 
 class Has(Expression):
-    _fields = ("namelist",)
+    fields = ("namelist",)
 
 class Assignment(BlockItem):
-    _fields = ("symbol", "expression")
+    fields = ("symbol", "expression")
 
 class Histogram(Named, BlockItem):
-    _fields = ("axes", "weight", "named", "titled")
+    fields = ("axes", "weight", "named", "titled")
 
 class Axis(AST):
-    _fields = ("expression", "binning")
+    fields = ("expression", "binning")
 
 class Vary(Statement):
-    _fields = ("trials", "body")
+    fields = ("trials", "body")
 
 class Trial(Named, AST):
-    _fields = ("assignments", "named")
+    fields = ("assignments", "named")
 
 class Cut(Named, Statement):
-    _fields = ("expression", "weight", "named", "titled", "body")
+    fields = ("expression", "weight", "named", "titled", "body")
 
 def parse(source):
     start = parse.parser.parse(source)
@@ -234,10 +234,10 @@ def parse(source):
               "and": "and", "or": "or", "isnot": "not"}
 
     class Macro(Statement):
-        _fields = ("parameters", "body")
+        fields = ("parameters", "body")
 
     class MacroBlock(AST):
-        _fields = ("body",)
+        fields = ("body",)
 
     def getattributes(nodes, source, macros, defining):
         weight, named, titled = None, None, None

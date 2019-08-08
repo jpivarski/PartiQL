@@ -33,110 +33,110 @@ class Array:
         return not self.__eq__(other)
 
     def setindex(self, row=None, col=None):
-        self._row = index.RowIndex([(i,) for i in range(len(self))]) if row is None else row
-        self._col = index.ColIndex() if col is None else col
+        self.row = index.RowIndex([(i,) for i in range(len(self))]) if row is None else row
+        self.col = index.ColIndex() if col is None else col
 
 class PrimitiveArray(Array):
     "Array of fixed-bytewidth objects: booleans, numbers, etc."
 
     def __init__(self, data, row=None, col=None):
-        self._data, self._row, self._col = data, row, col
+        self.data, self.row, self.col = data, row, col
 
     def __getitem__(self, where):
         if isinstance(where, slice):
-            return PrimitiveArray(self._data[where], None if self._row is None else self._row[where], self._col)
+            return PrimitiveArray(self.data[where], None if self.row is None else self.row[where], self.col)
         elif isinstance(where, int):
-            return self._data[where]
+            return self.data[where]
         else:
             raise TypeError("PrimitiveArray cannot be selected with {0}".format(where))
 
     def __len__(self):
-        return len(self._data)
+        return len(self.data)
 
     def tolist(self):
-        return list(self._data)
+        return list(self.data)
 
 class ListArray(Array):
     "Array of variable-length but single-type lists (a.k.a. JaggedArray)."
 
     def __init__(self, starts, stops, content, row=None, col=None):
-        self._starts, self._stops, self._content, self._row, self._col = starts, stops, content, row, col
+        self.starts, self.stops, self.content, self.row, self.col = starts, stops, content, row, col
 
     def __getitem__(self, where):
         if isinstance(where, str):
-            return ListArray(self._starts, self._stops, self._content[where], self._row, None if self._col is None else self._col[1:])
+            return ListArray(self.starts, self.stops, self.content[where], self.row, None if self.col is None else self.col[1:])
         elif isinstance(where, slice):
-            return ListArray(self._starts[where], self._stops[where], self._content, None if self._row is None else self._row[where], self._col)
+            return ListArray(self.starts[where], self.stops[where], self.content, None if self.row is None else self.row[where], self.col)
         elif isinstance(where, int):
-            return self._content[self._starts[where]:self._stops[where]]
+            return self.content[self.starts[where]:self.stops[where]]
         else:
             raise TypeError("ListArray cannot be selected with {0}".format(where))
 
     def __len__(self):
-        return len(self._starts)
+        return len(self.starts)
 
     def setindex(self, row=None, col=None):
         super(ListArray, self).setindex(row, col)
-        subrow = [None] * len(self._content)
-        for i, r in enumerate(self._row):
-            for j in range(self._stops[i] - self._starts[i]):
-                subrow[self._starts[i] + j] = r + (j,)
-        self._content.setindex(index.RowIndex(subrow), col)
+        subrow = [None] * len(self.content)
+        for i, r in enumerate(self.row):
+            for j in range(self.stops[i] - self.starts[i]):
+                subrow[self.starts[i] + j] = r + (j,)
+        self.content.setindex(index.RowIndex(subrow), col)
 
 class UnionArray(Array):
     "Array of possibly multiple types (a.k.a. tagged union/sum type)."
 
     def __init__(self, tags, offsets, contents, row=None, col=None):
-        self._tags, self._offsets, self._contents, self._row, self._col = tags, offsets, contents, row, col
+        self.tags, self.offsets, self.contents, self.row, self.col = tags, offsets, contents, row, col
 
     def __getitem__(self, where):
         if isinstance(where, str):
-            return UnionArray(self._tags, self._offsets, [x[where] for x in self._contents], self._row, None if self._col is None else self._col[1:])
+            return UnionArray(self.tags, self.offsets, [x[where] for x in self.contents], self.row, None if self.col is None else self.col[1:])
         elif isinstance(where, slice):
-            return UnionArray(self._tags[where], self._offsets[where], self._contents, None if self._row is None else self._row[where], self._col)
+            return UnionArray(self.tags[where], self.offsets[where], self.contents, None if self.row is None else self.row[where], self.col)
         elif isinstance(where, int):
-            return self._contents[self._tags[where]][self._offsets[where]]
+            return self.contents[self.tags[where]][self.offsets[where]]
         else:
             raise TypeError("UnionArray cannot be selected with {0}".format(where))
 
     def __len__(self):
-        return len(self._tags)
+        return len(self.tags)
 
     def setindex(self, row=None, col=None):
         super(UnionArray, self).setindex(row, col)
-        subrows = [[None] * len(x) for x in self._contents]
-        for i, r in enumerate(self._row):
-            subrows[self._tags[i]][self._offsets[i]] = r
-        for subrow, x in zip(subrows, self._contents):
+        subrows = [[None] * len(x) for x in self.contents]
+        for i, r in enumerate(self.row):
+            subrows[self.tags[i]][self.offsets[i]] = r
+        for subrow, x in zip(subrows, self.contents):
             x.setindex(index.RowIndex(subrow), col)
 
 class RecordArray(Array):
     "Array of record objects (a.k.a. Table, array of structs/product type)."
 
     def __init__(self, contents, row=None, col=None):
-        self._contents, self._row, self._col = contents, row, col
+        self.contents, self.row, self.col = contents, row, col
 
     def __getitem__(self, where):
         if isinstance(where, str):
-            return self._contents[where]
+            return self.contents[where]
         elif isinstance(where, slice):
-            return RecordArray({n: x[where] for n, x in self._contents.items()}, None if self._row is None else self._row[where], self._col)
+            return RecordArray({n: x[where] for n, x in self.contents.items()}, None if self.row is None else self.row[where], self.col)
         elif isinstance(where, int):
-            return {n: x[where] for n, x in self._contents.items()}
+            return {n: x[where] for n, x in self.contents.items()}
         else:
             raise TypeError("RecordArray cannot be selected with {0}".format(where))
 
     def __len__(self):
-        return min(len(x) for x in self._contents.values())
+        return min(len(x) for x in self.contents.values())
 
     def tolist(self):
-        contents = {n: x.tolist() for n, x in self._contents.items()}
+        contents = {n: x.tolist() for n, x in self.contents.items()}
         return [{n: x[i] for n, x in contents.items()} for i in range(len(self))]
 
     def setindex(self, row=None, col=None):
         super(RecordArray, self).setindex(row, col)
-        for n, x in self._contents.items():
-            x.setindex(self._row, index.ColIndex(n) if col is None else col.withattr(n))
+        for n, x in self.contents.items():
+            x.setindex(self.row, index.ColIndex(n) if col is None else col.withattr(n))
 
 class Instance:
     def __init__(self, value, row, col):
@@ -152,19 +152,19 @@ class Instance:
         return not self.__eq__(other)
 
 class ValueInstance(Instance):
-    _name = "Value"
+    name = "Value"
 
     def __repr__(self, indent=""):
-        return indent + "{0}{1}{2}{{ {3} }}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), repr(self.value))
+        return indent + "{0}{1}{2}{{ {3} }}".format(self.name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), repr(self.value))
 
     def tolist(self):
         return self.value
 
 class ListInstance(Instance):
-    _name = "List"
+    name = "List"
 
     def __repr__(self, indent=""):
-        out = [indent, "{0}{1}{2}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
+        out = [indent, "{0}{1}{2}".format(self.name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
         for x in self.value:
             out.append(x.__repr__(indent + "    ") + "\n")
         out.append(indent + "}")
@@ -187,13 +187,13 @@ class ListInstance(Instance):
         return [x.tolist() for x in self.value]
 
 class RecordInstance(Instance):
-    _name = "Rec"
+    name = "Rec"
 
     def fields(self):
         return self.value.keys()
 
     def __repr__(self, indent=""):
-        out = [indent, "{0}{1}{2}".format(self._name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
+        out = [indent, "{0}{1}{2}".format(self.name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
         for x in self.value.values():
             out.append(x.__repr__(indent + "    ") + "\n")
         out.append(indent + "}")
@@ -214,13 +214,13 @@ class RecordInstance(Instance):
 def instantiate(data):
     def recurse(array, i):
         if isinstance(array, PrimitiveArray):
-            return ValueInstance(array._data[i], array._row[i], array._col.key())
+            return ValueInstance(array.data[i], array.row[i], array.col.key())
         elif isinstance(array, ListArray):
-            return ListInstance([recurse(array._content, j) for j in range(array._starts[i], array._stops[i])], array._row[i], array._col.key())
+            return ListInstance([recurse(array.content, j) for j in range(array.starts[i], array.stops[i])], array.row[i], array.col.key())
         elif isinstance(array, UnionArray):
-            return recurse(array._contents[array._tags[i]], array._offsets[i])
+            return recurse(array.contents[array.tags[i]], array.offsets[i])
         elif isinstance(array, RecordArray):
-            return RecordInstance({n: recurse(x, i) for n, x in array._contents.items()}, array._row[i], array._col.key())
+            return RecordInstance({n: recurse(x, i) for n, x in array.contents.items()}, array.row[i], array.col.key())
         else:
             raise NotImplementedError
     return ListInstance([recurse(data, i) for i in range(len(data))], None, None)
@@ -304,16 +304,16 @@ def test_data():
 
     events.setindex()
 
-    muonpt = events._contents["muons"]._content._contents["pt"]
-    assert muonpt._row == [(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)]
-    assert muonpt._col == ("muons", "pt")
+    muonpt = events.contents["muons"].content.contents["pt"]
+    assert muonpt.row == [(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2), (3, 3)]
+    assert muonpt.col == ("muons", "pt")
 
-    muoniso = events._contents["muons"]._content._contents["iso"]
-    assert muonpt._row == muoniso._row
-    assert muonpt._row.same(muoniso._row)
+    muoniso = events.contents["muons"].content.contents["iso"]
+    assert muonpt.row == muoniso.row
+    assert muonpt.row.same(muoniso.row)
 
-    c1, c2 = muonpt._col.tolist()
-    for i, (r1, r2) in enumerate(muonpt._row):
+    c1, c2 = muonpt.col.tolist()
+    for i, (r1, r2) in enumerate(muonpt.row):
         assert events[c1][c2][r1][r2] == muonpt[i]
 
     instantiate(events)
@@ -342,9 +342,9 @@ def test_data():
     assert egamma["pt"] == [10, 20, 1.1, 30, 2.2, 3.3, 4.4, 40, 50]
 
     egamma.setindex()
-    assert egamma._contents[0]._contents["pt"]._row == [(0,), (1,), (3,), (7,), (8,)]
-    assert egamma._contents[1]._contents["pt"]._row == [(2,), (4,), (5,), (6,)]
-    assert egamma._contents[0]._contents["pt"]._col == ("pt",)
-    assert egamma._contents[1]._contents["pt"]._col == ("pt",)
+    assert egamma.contents[0].contents["pt"].row == [(0,), (1,), (3,), (7,), (8,)]
+    assert egamma.contents[1].contents["pt"].row == [(2,), (4,), (5,), (6,)]
+    assert egamma.contents[0].contents["pt"].col == ("pt",)
+    assert egamma.contents[1].contents["pt"].col == ("pt",)
 
     instantiate(egamma)

@@ -12,17 +12,17 @@ import parser
 
 class SymbolTable:
     def __init__(self, parent=None):
-        self._parent = parent
-        self._table = {}
+        self.parent = parent
+        self.table = {}
 
     def __repr__(self):
-        return "<SymbolTable ({0} symbols) {1}>".format(len(self._table), repr(self._parent))
+        return "<SymbolTable ({0} symbols) {1}>".format(len(self.table), repr(self.parent))
 
     def get(self, where, line=None, source=None):
-        if where in self._table:
-            return self._table[where]
-        elif self._parent is not None:
-            return self._parent[where]
+        if where in self.table:
+            return self.table[where]
+        elif self.parent is not None:
+            return self.parent[where]
         else:
             raise parser.LanguageError("unrecognized variable or function name: {0}".format(repr(where)), line, source)
 
@@ -30,52 +30,52 @@ class SymbolTable:
         return self.get(where)
 
     def __setitem__(self, where, what):
-        self._table[where] = what
+        self.table[where] = what
 
     def empty(self):
-        return len(self._table) == 0
+        return len(self.table) == 0
 
     def __iter__(self):
-        for n in self._table:
+        for n in self.table:
             yield n
 
 class Counter:
     def __init__(self, line=None, source=None):
-        self._line, self._source = line, source
-        self._n = 0
-        self._sumw = 0.0
-        self._sumw2 = 0.0
+        self.line, self.source = line, source
+        self.n = 0
+        self.sumw = 0.0
+        self.sumw2 = 0.0
 
     @property
     def entries(self):
-        return self._n
+        return self.n
 
     @property
     def value(self):
-        return self._sumw
+        return self.sumw
 
     @property
     def error(self):
-        return numpy.sqrt(self._sumw2)
+        return numpy.sqrt(self.sumw2)
 
     def __repr__(self):
         return "<{0} {1} ({2} +- {3})>".format(type(self).__name__, self.entries, self.value, self.error)
 
     def fill(self, w):
-        self._n += 1
-        self._sumw += w
-        self._sumw2 += w**2
+        self.n += 1
+        self.sumw += w
+        self.sumw2 += w**2
 
 class DirectoryCounter(Counter):
     def __init__(self, line=None, source=None):
         super(DirectoryCounter, self).__init__(line=line, source=source)
-        self._n = 0
-        self._sumw = 0.0
-        self._sumw2 = 0.0
-        self._table = {}
+        self.n = 0
+        self.sumw = 0.0
+        self.sumw2 = 0.0
+        self.table = {}
 
     def iterkeys(self, recursive=False):
-        for n, x in self._table.items():
+        for n, x in self.table.items():
             yield n
             if recursive and isinstance(x, Counter):
                 for n2 in x.iterkeys(recursive=recursive):
@@ -88,18 +88,18 @@ class DirectoryCounter(Counter):
         return keys(recursive=True)
 
     def __contains__(self, where):
-        return where in self._table
+        return where in self.table
 
     def __getitem__(self, where):
         try:
             i = where.index("/")
         except ValueError:
-            return self._table[where]
+            return self.table[where]
         else:
-            return self._table[where[:i]][where[i + 1:]]
+            return self.table[where[:i]][where[i + 1:]]
 
     def __setitem__(self, where, what):
-        self._table[where] = what
+        self.table[where] = what
 
 class Binning: pass
 
@@ -115,40 +115,40 @@ class Unspecified(Binning):
 
 class Regular(Binning):
     def __init__(self, num, low, high):
-        self._num, self._low, self._high = num, low, high
+        self.num, self.low, self.high = num, low, high
 
     def __repr__(self):
-        return "Regular({0}, {1}, {2})".format(self._num, self._low, self._high)
+        return "Regular({0}, {1}, {2})".format(self.num, self.low, self.high)
 
     def num(self, data):
-        return self._num
+        return self.num
 
     def range(self, data):
-        return (self._low, self._high)
+        return (self.low, self.high)
 
 class Histogram(Counter):
     def __init__(self, binnings, line=None, source=None):
         super(Histogram, self).__init__(line=line, source=source)
-        self._binnings = binnings
-        self._data = []
-        self._weights = []
+        self.binnings = binnings
+        self.data = []
+        self.weights = []
 
     def __repr__(self):
-        return "<Histogram {0} dim {1} entries>".format(len(self._binnings), len(self._data))
+        return "<Histogram {0} dim {1} entries>".format(len(self.binnings), len(self.data))
 
     def fill(self, x, w):
-        assert len(x) == len(self._binnings)
-        self._n += 1
-        self._sumw += w
-        self._sumw2 += w**2
-        self._data.append(x)
-        self._weights.append([w])
+        assert len(x) == len(self.binnings)
+        self.n += 1
+        self.sumw += w
+        self.sumw2 += w**2
+        self.data.append(x)
+        self.weights.append([w])
 
     def numpy(self):
-        if len(self._binnings) == 1:
-            return numpy.histogram(self._data, bins=self._binnings[0].num(self._data), range=self._binnings[0].range(self._data), weights=self._weights)
+        if len(self.binnings) == 1:
+            return numpy.histogram(self.data, bins=self.binnings[0].num(self.data), range=self.binnings[0].range(self.data), weights=self.weights)
         else:
-            return numpy.histogramdd(self._data, bins=[x.num(self._data) for x in self._binnings], range=[x.range(self._data) for x in self._binnings], weights=self._weights)
+            return numpy.histogramdd(self.data, bins=[x.num(self.data) for x in self.binnings], range=[x.range(self.data) for x in self.binnings], weights=self.weights)
 
 ################################################################################ functions
 
@@ -159,7 +159,7 @@ fcns["e"] = data.ValueInstance(math.e, None, index.DerivedColKey(parser.Literal(
 
 class NumericalFunction:
     def __init__(self, name, fcn):
-        self._name, self._fcn = name, fcn
+        self.name, self.fcn = name, fcn
 
     def __call__(self, node, symbols, counter, weight, rowkey):
         args = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
@@ -167,10 +167,10 @@ class NumericalFunction:
             if x is None:
                 return None
             if not (isinstance(x, data.ValueInstance) and isinstance(x.value, (int, float))):
-                raise parser.LanguageError("all arguments in {0} must be numbers (not lists or records)".format(self._name), x.line, x.source)
+                raise parser.LanguageError("all arguments in {0} must be numbers (not lists or records)".format(self.name), x.line, x.source)
 
         try:
-            result = self._fcn(*[x.value for x in args])
+            result = self.fcn(*[x.value for x in args])
         except Exception as err:
             raise parser.LanguageError(str(err), node.line, node.source)
 
@@ -226,16 +226,16 @@ fcns["lgamma"] = NumericalFunction("lgamma", math.lgamma)
 
 class EqualityFunction:
     def __init__(self, negated):
-        self._negated = negated
+        self.negated = negated
 
-    def _simplify(self, t):
+    def simplify(self, t):
         if isinstance(t, (int, float)):
             return float
         else:
             return t
 
-    def _evaluate(self, node, left, right):
-        if type(left) != type(right) or (type(left) is data.ValueInstance and self._simplify(type(left.value)) != self._simplify(type(right.value))):
+    def evaluate(self, node, left, right):
+        if type(left) != type(right) or (type(left) is data.ValueInstance and self.simplify(type(left.value)) != self.simplify(type(right.value))):
             raise parser.LanguageError("left and right of an equality/inequality check must have the same types", node.line, node.source)
 
         if type(left) is data.ValueInstance:
@@ -243,14 +243,14 @@ class EqualityFunction:
 
         elif type(left) is data.ListInstance:
             if len(left.value) == len(right.value):
-                if self._negated:
+                if self.negated:
                     for x, y in zip(left.value, right.value):
-                        if self._evaluate(node, x, y):
+                        if self.evaluate(node, x, y):
                             return True
                     return False
                 else:
                     for x, y in zip(left.value, right.value):
-                        if not self._evaluate(node, x, y):
+                        if not self.evaluate(node, x, y):
                             return False
                     return True
             else:
@@ -259,7 +259,7 @@ class EqualityFunction:
         elif type(left) is data.RecordInstance:
             out = (left.row == right.row) and (left.col == right.col)
 
-        if self._negated:
+        if self.negated:
             return not out
         else:
             return out
@@ -270,23 +270,23 @@ class EqualityFunction:
             return None
         assert len(args) == 2
         assert isinstance(args[0], data.Instance) and isinstance(args[1], data.Instance)
-        return data.ValueInstance(self._evaluate(node, args[0], args[1]), rowkey, index.DerivedColKey(node))
+        return data.ValueInstance(self.evaluate(node, args[0], args[1]), rowkey, index.DerivedColKey(node))
 
 fcns["=="] = EqualityFunction(False)
 fcns["!="] = EqualityFunction(True)
 
 class InclusionFunction(EqualityFunction):
-    def _evaluate(self, node, left, right):
+    def evaluate(self, node, left, right):
         if type(right) != data.ListInstance:
             raise parser.LanguageError("value to the right of 'in' must be a list", node.line, node.source)
-        if self._negated:
+        if self.negated:
             for x in right.value:
-                if not EqualityFunction._evaluate(self, node, left, x):
+                if not EqualityFunction.evaluate(self, node, left, x):
                     return False
             return True
         else:
             for x in right.value:
-                if EqualityFunction._evaluate(self, node, left, x):
+                if EqualityFunction.evaluate(self, node, left, x):
                     return True
             return False
 
@@ -302,19 +302,19 @@ class BooleanFunction:
                     yield None
                 else:
                     if not (isinstance(arg, data.ValueInstance) and isinstance(arg.value, bool)):
-                        raise parser.LanguageError("arguments of '{0}' must be boolean".format(self._name), arg.line, arg.source)
+                        raise parser.LanguageError("arguments of '{0}' must be boolean".format(self.name), arg.line, arg.source)
                     yield arg.value
-        return data.ValueInstance(self._fcn(iterate()), rowkey, index.DerivedColKey(node))
+        return data.ValueInstance(self.fcn(iterate()), rowkey, index.DerivedColKey(node))
 
 # Three-valued logic
 # https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics
 
 class AndFunction(BooleanFunction):
     @property
-    def _name(self):
+    def name(self):
         return "and"
 
-    def _fcn(self, iterate):
+    def fcn(self, iterate):
         first = next(iterate)
         if first is False:
             return False
@@ -329,10 +329,10 @@ class AndFunction(BooleanFunction):
 
 class OrFunction(BooleanFunction):
     @property
-    def _name(self):
+    def name(self):
         return "or"
 
-    def _fcn(self, iterate):
+    def fcn(self, iterate):
         first = next(iterate)
         if first is False:
             return next(iterate)
@@ -347,10 +347,10 @@ class OrFunction(BooleanFunction):
 
 class NotFunction(BooleanFunction):
     @property
-    def _name(self):
+    def name(self):
         return "not"
 
-    def _fcn(self, iterate):
+    def fcn(self, iterate):
         first = next(iterate)
         if first is None:
             return None
@@ -376,6 +376,30 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
         return runstep(node.arguments[2], symbols, counter, weight, rowkey)
 
 fcns["if"] = ifthenelse
+
+def crossfcn(node, symbols, counter, weight, rowkey):
+    left, right = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
+    if left is None or right is None:
+        return None
+
+    if isinstance(left, data.ListInstance):
+        raise parser.LanguageError("left and right of 'cross' must be lists", left.line, left.source)
+    if isinstance(right, data.ListInstance):
+        raise parser.LanguageError("left and right of 'cross' must be lists", right.line, right.source)
+
+    print("-----------------------------")
+    print(rowkey)
+    print(left)
+    print(right)
+
+    assert rowkey == left.row and rowkey == right.row
+
+
+
+
+
+
+fcns["cross"] = crossfcn
 
 ################################################################################ run
 
@@ -614,3 +638,10 @@ x = (if 1 in stuff then 1 else -1)
 x = (if 2 in stuff then "a" else "b")
 """, test_dataset())
     assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
+
+# def test_tabular():
+#     output, counter = run(r"""
+# leptoquarks = muons cross jets
+# """, test_dataset())
+#     # print(output)
+#     assert False
