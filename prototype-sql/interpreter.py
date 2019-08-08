@@ -305,7 +305,11 @@ class BooleanFunction:
                     if not (isinstance(arg, data.ValueInstance) and isinstance(arg.value, bool)):
                         raise parser.LanguageError("arguments of '{0}' must be boolean".format(self.name), arg.line, arg.source)
                     yield arg.value
-        return data.ValueInstance(self.fcn(iterate()), rowkey, index.DerivedColKey(node))
+        result = self.fcn(iterate())
+        if result is None:
+            return None
+        else:
+            return data.ValueInstance(result, rowkey, index.DerivedColKey(node))
 
 # Three-valued logic
 # https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics
@@ -377,6 +381,36 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
         return runstep(node.arguments[2], symbols, counter, weight, rowkey)
 
 fcns["if"] = ifthenelse
+
+def wherefcn(node, symbols, counter, weight, rowkey):
+    container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
+    if container is None:
+        return None
+
+    if not isinstance(container, data.ListInstance):
+        raise parser.LanguageError("left of 'where' must be a list", node.arguments[0].line, node.arguments[0].source)
+
+    assert rowkey == container.row
+    out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+
+    for x in container.value:
+        if not isinstance(x, data.RecordInstance):
+            raise parser.LanguageError("left of 'where' must contain records", node.arguments[0].line, node.arguments[0].source)
+
+        subtable = SymbolTable(symbols)
+        for n in x.fields():
+            subtable[n] = x[n]
+
+        result = runstep(node.arguments[1], subtable, counter, weight, x.row)
+        if result is not None:
+            if not (isinstance(result, data.ValueInstance) and isinstance(result.value, bool)):
+                raise parser.LanguageError("right or 'where' must be boolean", node.arguments[1].line, node.arguments[1].source)
+            if result.value:
+                out.append(x)
+
+    return out
+
+fcns["where"] = wherefcn
 
 def crossfcn(node, symbols, counter, weight, rowkey):
     left, right = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
@@ -744,6 +778,11 @@ leptoquarks = muons with { iso2 = 2*iso }
 leptoquarks = muons with { iso2 = 2*iso; iso10 = 10*iso }
 """, test_dataset())
     output.tolist() == [{"leptoquarks": [{"pt": 1.1, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 2.2, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 3.3, "iso": 100, "iso2": 200, "iso10": 1000}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100, "iso10": 500}, {"pt": 5.5, "iso": 30, "iso2": 60, "iso10": 300}]}, {"leptoquarks": [{"pt": 6.6, "iso": 1, "iso2": 2, "iso10": 10}, {"pt": 7.7, "iso": 2, "iso2": 4, "iso10": 20}, {"pt": 8.8, "iso": 3, "iso2": 6, "iso10": 30}, {"pt": 9.9, "iso": 4, "iso2": 8, "iso10": 40}]}]
+
+    output, counter = run(r"""
+leptoquarks = muons where iso > 2
+""", test_dataset())
+    assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
     output, counter = run(r"""
 leptoquarks = muons cross jets
