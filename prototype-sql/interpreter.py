@@ -229,17 +229,11 @@ class EqualityFunction:
     def __init__(self, negated):
         self.negated = negated
 
-    def simplify(self, t):
-        if isinstance(t, (int, float)):
-            return float
-        else:
-            return t
-
     def evaluate(self, node, left, right):
-        if type(left) != type(right) or (type(left) is data.ValueInstance and self.simplify(type(left.value)) != self.simplify(type(right.value))):
-            raise parser.LanguageError("left and right of an equality/inequality check must have the same types", node.line, node.source)
+        if type(left) != type(right):
+            out = False
 
-        if type(left) is data.ValueInstance:
+        elif type(left) is data.ValueInstance:
             out = (left.value == right.value)
 
         elif type(left) is data.ListInstance:
@@ -258,7 +252,19 @@ class EqualityFunction:
                 out = False
 
         elif type(left) is data.RecordInstance:
-            out = (left.row == right.row) and (left.col == right.col)
+            if left.row == right.row and set(left.fields()) == set(right.fields()):
+                if self.negated:
+                    for n in left.fields():
+                        if self.evaluate(node, left[n], right[n]):
+                            return True
+                    return False
+                else:
+                    for n in left.fields():
+                        if not self.evaluate(node, left[n], right[n]):
+                            return False
+                    return True
+            else:
+                out = False
 
         if self.negated:
             return not out
