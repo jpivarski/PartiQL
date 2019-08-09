@@ -49,11 +49,13 @@ has:        "has" namelist
 
 tabular:    minmaxby
 minmaxby:   groupby    | minmaxby "min" "by" scalar -> minby | minmaxby "max" "by" scalar -> maxby
-groupby:    union      | groupby "group" "by" scalar
-union:      cross      | union "union" cross
-cross:      join       | cross "cross" join
-join:       wherewith  | join "join" wherewith
-wherewith:  pack       | wherewith "with" "{" blockitems "}" -> with | wherewith "where" scalar -> where
+groupby:    uniondiff  | groupby "group" "by" scalar
+uniondiff:  intercross | uniondiff "union" intercross -> union
+                       | uniondiff "except" intercross -> except
+intercross: wherewith  | intercross "intersect" wherewith -> intersect
+                       | intercross "cross" wherewith -> cross
+wherewith:  pack       | wherewith "with" "{" blockitems "}" -> with
+                       | wherewith "where" scalar -> where
 pack:       scalar     | scalar "as" namelist
 
 scalar:     branch
@@ -337,7 +339,7 @@ def parse(source):
         elif node.data == "where" and len(node.children) == 2:
             return Call(Symbol("where"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
-        elif node.data in ("join", "cross", "union") and len(node.children) == 2:
+        elif node.data in ("intersect", "cross", "union", "except") and len(node.children) == 2:
             return Call(Symbol(node.data), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
         elif node.data == "groupby" and len(node.children) == 2:
@@ -386,7 +388,7 @@ def parse(source):
             weight, named, titled = getattributes(node.children[1:-1], source, macros, defining)
             return Cut(toast(node.children[0], macros, defining), weight, named, titled, toast(node.children[-1], macros, defining), source=source)
 
-        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "union", "cross", "join", "wherewith", "pack", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
+        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "uniondiff", "intercross", "wherewith", "pack", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             out = toast(node.children[0], macros, defining)
             if isinstance(out, MacroBlock) and len(out.body) == 1:
                 return out.body[0]
@@ -530,17 +532,24 @@ def test_table():
     assert parse(r"table with { x = 3; y = x }") == [With(Symbol("table"), [Assignment("x", Literal(3)), Assignment("y", Symbol("x"))])]
     assert parse(r"table where x > 0") == [Call(Symbol("where"), [Symbol("table"), Call(Symbol(">"), [Symbol("x"), Literal(0)])])]
     assert parse(r"table with { x = 3 } where x > 0") == [Call(Symbol("where"), [With(Symbol("table"), [Assignment("x", Literal(3))]), Call(Symbol(">"), [Symbol("x"), Literal(0)])])]
-    assert parse(r"a join b") == [Call(Symbol("join"), [Symbol("a"), Symbol("b")])]
+    assert parse(r"a intersect b") == [Call(Symbol("intersect"), [Symbol("a"), Symbol("b")])]
     assert parse(r"a cross b") == [Call(Symbol("cross"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a cross b join c") == [Call(Symbol("cross"), [Symbol("a"), Call(Symbol("join"), [Symbol("b"), Symbol("c")])])]
-    assert parse(r"(a cross b) join c") == [Call(Symbol("join"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a cross b intersect c") == [Call(Symbol("intersect"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"(a cross b) intersect c") == [Call(Symbol("intersect"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a except b union c") == [Call(Symbol("union"), [Call(Symbol("except"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"(a except b) union c") == [Call(Symbol("union"), [Call(Symbol("except"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
     assert parse(r"a union b cross c") == [Call(Symbol("union"), [Symbol("a"), Call(Symbol("cross"), [Symbol("b"), Symbol("c")])])]
     assert parse(r"(a union b) cross c") == [Call(Symbol("cross"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    assert parse(r"a union b join c") == [Call(Symbol("union"), [Symbol("a"), Call(Symbol("join"), [Symbol("b"), Symbol("c")])])]
-    assert parse(r"(a union b) join c") == [Call(Symbol("join"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    assert parse(r"a join b join c") == [Call(Symbol("join"), [Call(Symbol("join"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a union b intersect c") == [Call(Symbol("union"), [Symbol("a"), Call(Symbol("intersect"), [Symbol("b"), Symbol("c")])])]
+    assert parse(r"(a union b) intersect c") == [Call(Symbol("intersect"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a except b cross c") == [Call(Symbol("except"), [Symbol("a"), Call(Symbol("cross"), [Symbol("b"), Symbol("c")])])]
+    assert parse(r"(a except b) cross c") == [Call(Symbol("cross"), [Call(Symbol("except"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a except b intersect c") == [Call(Symbol("except"), [Symbol("a"), Call(Symbol("intersect"), [Symbol("b"), Symbol("c")])])]
+    assert parse(r"(a except b) intersect c") == [Call(Symbol("intersect"), [Call(Symbol("except"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a intersect b intersect c") == [Call(Symbol("intersect"), [Call(Symbol("intersect"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
     assert parse(r"a cross b cross c") == [Call(Symbol("cross"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
     assert parse(r"a union b union c") == [Call(Symbol("union"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a except b except c") == [Call(Symbol("except"), [Call(Symbol("except"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
     assert parse(r"table group by x") == [Call(Symbol("group"), [Symbol("table"), Symbol("x")])]
     assert parse(r"table min by x") == [Call(Symbol("min"), [Symbol("table"), Symbol("x")])]
     assert parse(r"table max by x") == [Call(Symbol("max"), [Symbol("table"), Symbol("x")])]
