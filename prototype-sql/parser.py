@@ -82,8 +82,8 @@ atom: "(" expression ")"
 namelist: CNAME | "(" CNAME ("," CNAME)* ")"
 arglist: expression ("," expression)*
 trailer: "(" arglist? ")" -> args
-       | "[" arglist "]" -> items
        | "." CNAME -> attr
+//     | "[" arglist "]" -> items    // getitem would provide access to list order; let's work with pure sets
 
 COMMENT: "#" /.*/ | "//" /.*/ | "/*" /(.|\n|\r)*/ "*/"
 
@@ -201,8 +201,8 @@ class Block(Expression):
 class Call(Expression):
     fields = ("function", "arguments")
 
-class GetItem(Expression):
-    fields = ("container", "where")
+# class GetItem(Expression):
+#     fields = ("container", "where")
 
 class GetAttr(Expression):
     fields = ("object", "field")
@@ -321,8 +321,8 @@ def parse(source):
                 else:
                     return Call(toast(node.children[0], macros, defining), args, source=source)
 
-            elif node.children[1].data == "items":
-                return GetItem(toast(node.children[0], macros, defining), args, source=source)
+            # elif node.children[1].data == "items":
+            #     return GetItem(toast(node.children[0], macros, defining), args, source=source)
 
             else:
                 assert False
@@ -470,10 +470,10 @@ def test_expressions():
     assert parse(r'"hello"') == [Literal("hello")]
     assert parse(r"f(x)") == [Call(Symbol("f"), [Symbol("x")])]
     assert parse(r"f(x, 1, 3.14)") == [Call(Symbol("f"), [Symbol("x"), Literal(1), Literal(3.14)])]
-    parse(r"a[0]")
-    assert parse(r"a[0]") == [GetItem(Symbol("a"), [Literal(0)])]
-    assert parse(r"a[0][i]") == [GetItem(GetItem(Symbol("a"), [Literal(0)]), [Symbol("i")])]
-    assert parse(r"a[0, i]") == [GetItem(Symbol("a"), [Literal(0), Symbol("i")])]
+    # parse(r"a[0]")
+    # assert parse(r"a[0]") == [GetItem(Symbol("a"), [Literal(0)])]
+    # assert parse(r"a[0][i]") == [GetItem(GetItem(Symbol("a"), [Literal(0)]), [Symbol("i")])]
+    # assert parse(r"a[0, i]") == [GetItem(Symbol("a"), [Literal(0), Symbol("i")])]
     assert parse(r"a.b") == [GetAttr(Symbol("a"), "b")]
     assert parse(r"a.b.c") == [GetAttr(GetAttr(Symbol("a"), "b"), "c")]
     assert parse(r"x**2") == [Call(Symbol("**"), [Symbol("x"), Literal(2)])]

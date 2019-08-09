@@ -440,14 +440,6 @@ class SetFunction:
         self.fill(rowkey, left, right, out)
         return out
 
-class IntersectFunction(SetFunction):
-    name = "intersect"
-
-    def fill(self, rowkey, left, right, out):
-        raise NotImplementedError
-
-fcns["intersect"] = IntersectFunction()
-
 class CrossFunction(SetFunction):
     name = "cross"
 
@@ -473,6 +465,25 @@ class CrossFunction(SetFunction):
                 out.append(obj)
 
 fcns["cross"] = CrossFunction()
+
+class IntersectFunction(SetFunction):
+    name = "intersect"
+
+    def fill(self, rowkey, left, right, out):
+        rights = {x.row: x for x in right.value}
+
+        for x in left.value:
+            r = rights.get(x.row)
+            if r is not None:
+                obj = data.RecordInstance({n: x[n] for n in x.fields()}, x.row, out.col)
+
+                for n in r.fields():
+                    if n not in obj:
+                        obj[n] = r[n]
+
+                out.append(obj)
+
+fcns["intersect"] = IntersectFunction()
 
 class UnionFunction(SetFunction):
     name = "union"
@@ -525,8 +536,8 @@ def runstep(node, symbols, counter, weight, rowkey):
         else:
             raise parser.LanguageError("not a function; cannot be called", node.line, node.source)
 
-    elif isinstance(node, parser.GetItem):
-        raise NotImplementedError(node)
+    # elif isinstance(node, parser.GetItem):
+    #     raise NotImplementedError(node)
 
     elif isinstance(node, parser.GetAttr):
         raise NotImplementedError(node)
@@ -821,31 +832,61 @@ nested = stuff as x
     assert output.tolist() == [{"nested": []}, {"nested": [{"x": 1}]}, {"nested": [{"x": 2}, {"x": 2}]}, {"nested": [{"x": 3}, {"x": 3}, {"x": 3}]}]
 
     output, counter = run(r"""
-leptoquarks = muons with { iso2 = 2*iso }
+joined = muons with { iso2 = 2*iso }
 """, test_dataset())
-    assert output.tolist() == [{"leptoquarks": [{"pt": 1.1, "iso": 0, "iso2": 0}, {"pt": 2.2, "iso": 0, "iso2": 0}, {"pt": 3.3, "iso": 100, "iso2": 200}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"leptoquarks": [{"pt": 6.6, "iso": 1, "iso2": 2}, {"pt": 7.7, "iso": 2, "iso2": 4}, {"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0}, {"pt": 2.2, "iso": 0, "iso2": 0}, {"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2}, {"pt": 7.7, "iso": 2, "iso2": 4}, {"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
     output, counter = run(r"""
-leptoquarks = muons with { iso2 = 2*iso; iso10 = 10*iso }
+joined = muons with { iso2 = 2*iso; iso10 = 10*iso }
 """, test_dataset())
-    output.tolist() == [{"leptoquarks": [{"pt": 1.1, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 2.2, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 3.3, "iso": 100, "iso2": 200, "iso10": 1000}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100, "iso10": 500}, {"pt": 5.5, "iso": 30, "iso2": 60, "iso10": 300}]}, {"leptoquarks": [{"pt": 6.6, "iso": 1, "iso2": 2, "iso10": 10}, {"pt": 7.7, "iso": 2, "iso2": 4, "iso10": 20}, {"pt": 8.8, "iso": 3, "iso2": 6, "iso10": 30}, {"pt": 9.9, "iso": 4, "iso2": 8, "iso10": 40}]}]
+    output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 2.2, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 3.3, "iso": 100, "iso2": 200, "iso10": 1000}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100, "iso10": 500}, {"pt": 5.5, "iso": 30, "iso2": 60, "iso10": 300}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2, "iso10": 10}, {"pt": 7.7, "iso": 2, "iso2": 4, "iso10": 20}, {"pt": 8.8, "iso": 3, "iso2": 6, "iso10": 30}, {"pt": 9.9, "iso": 4, "iso2": 8, "iso10": 40}]}]
 
     output, counter = run(r"""
-leptoquarks = muons where iso > 2
+joined = muons where iso > 2
 """, test_dataset())
-    assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
     output, counter = run(r"""
-leptoquarks = muons where iso > 2 union muons
+joined = muons where iso > 2 union muons
 """, test_dataset())
-    assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
 
     output, counter = run(r"""
-leptoquarks = muons where iso > 2 with { iso2 = 2*iso } union muons
+joined = muons where iso > 2 with { iso2 = 2*iso } union muons
 """, test_dataset())
-    assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
 
     output, counter = run(r"""
-leptoquarks = muons cross jets
+joined = muons cross jets
 """, test_dataset())
-    assert output.tolist() == [{"leptoquarks": [{"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 5.5, "mass": 15, "iso": 30}, {"pt": 5.5, "mass": 15, "iso": 30}]}, {"leptoquarks": [{"pt": 6.6, "mass": 9, "iso": 1}, {"pt": 6.6, "mass": 8, "iso": 1}, {"pt": 6.6, "mass": 7, "iso": 1}, {"pt": 6.6, "mass": 6, "iso": 1}, {"pt": 7.7, "mass": 9, "iso": 2}, {"pt": 7.7, "mass": 8, "iso": 2}, {"pt": 7.7, "mass": 7, "iso": 2}, {"pt": 7.7, "mass": 6, "iso": 2}, {"pt": 8.8, "mass": 9, "iso": 3}, {"pt": 8.8, "mass": 8, "iso": 3}, {"pt": 8.8, "mass": 7, "iso": 3}, {"pt": 8.8, "mass": 6, "iso": 3}, {"pt": 9.9, "mass": 9, "iso": 4}, {"pt": 9.9, "mass": 8, "iso": 4}, {"pt": 9.9, "mass": 7, "iso": 4}, {"pt": 9.9, "mass": 6, "iso": 4}]}]
+    assert output.tolist() == [{"joined": [{"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 5.5, "mass": 15, "iso": 30}, {"pt": 5.5, "mass": 15, "iso": 30}]}, {"joined": [{"pt": 6.6, "mass": 9, "iso": 1}, {"pt": 6.6, "mass": 8, "iso": 1}, {"pt": 6.6, "mass": 7, "iso": 1}, {"pt": 6.6, "mass": 6, "iso": 1}, {"pt": 7.7, "mass": 9, "iso": 2}, {"pt": 7.7, "mass": 8, "iso": 2}, {"pt": 7.7, "mass": 7, "iso": 2}, {"pt": 7.7, "mass": 6, "iso": 2}, {"pt": 8.8, "mass": 9, "iso": 3}, {"pt": 8.8, "mass": 8, "iso": 3}, {"pt": 8.8, "mass": 7, "iso": 3}, {"pt": 8.8, "mass": 6, "iso": 3}, {"pt": 9.9, "mass": 9, "iso": 4}, {"pt": 9.9, "mass": 8, "iso": 4}, {"pt": 9.9, "mass": 7, "iso": 4}, {"pt": 9.9, "mass": 6, "iso": 4}]}]
+
+    output, counter = run(r"""
+whatever = muons intersect jets
+""", test_dataset())
+    assert output.tolist() == [{"whatever": []}, {"whatever": []}, {"whatever": []}, {"whatever": []}]
+
+    output, counter = run(r"""
+joined = muons where iso > 2 with { iso2 = 2*iso }
+""", test_dataset())
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+
+    output, counter = run(r"""
+joined = muons where iso > 2 with { iso2 = 2*iso } intersect muons
+""", test_dataset())
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+
+    output, counter = run(r"""
+joined = muons where iso > 2 intersect muons where pt < 5
+""", test_dataset())
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
+
+    output, counter = run(r"""
+joined = muons where pt < 5 intersect muons where iso > 2
+""", test_dataset())
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
+
+    output, counter = run(r"""
+joined = muons where pt < 5 and iso > 2
+""", test_dataset())
+    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
