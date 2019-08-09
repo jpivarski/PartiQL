@@ -870,6 +870,16 @@ x = met
 """, test_dataset())
     assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
 
+    output, counter = run(r"""
+x = -met
+""", test_dataset())
+    assert output.tolist() == [{"x": -100}, {"x": -200}, {"x": -300}, {"x": -400}]
+
+    output, counter = run(r"""
+x = +met
+""", test_dataset())
+    assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
+
 def test_scalar():
     output, counter = run(r"""
 x = met + 1
