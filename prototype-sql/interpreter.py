@@ -25,7 +25,7 @@ class SymbolTable:
         elif self.parent is not None:
             return self.parent[where]
         else:
-            raise parser.QueryError("symbol {0} is missing in some or all cases (prepend with '?' to ignore)".format(repr(where)), line, source)
+            raise parser.QueryError("symbol {0} is missing in some or all cases (prepend with '?' symbol name with to ignore)".format(repr(where)), line, source)
 
     def __contains__(self, where):
         if where in self.table:
@@ -618,7 +618,11 @@ def runstep(node, symbols, counter, weight, rowkey):
         return symbols[node.symbol]
 
     elif isinstance(node, parser.Block):
-        raise NotImplementedError(node)
+        scope = SymbolTable(symbols)
+        result = None
+        for x in node.body:
+            result = runstep(x, scope, counter, weight, rowkey)
+        return result
 
     elif isinstance(node, parser.Call):
         function = runstep(node.function, symbols, counter, weight, rowkey)
@@ -644,7 +648,7 @@ def runstep(node, symbols, counter, weight, rowkey):
             if node.maybe:
                 return None
             else:
-                raise parser.QueryError("attribute {0} is missing in some or all cases".format(repr(node.field)), node.object.line, node.source)
+                raise parser.QueryError("attribute {0} is missing in some or all cases (use '?.' instead of '.' to ignore)".format(repr(node.field)), node.object.line, node.source)
         else:
             return obj[node.field]
 
@@ -914,6 +918,22 @@ x = (if 1 in stuff then 1 else -1)
 x = (if 2 in stuff then "a" else "b")
 """, test_dataset())
     assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
+
+    output, counter = run(r"""
+x = {3}
+""", test_dataset())
+    assert output.tolist() == [{"x": 3}, {"x": 3}, {"x": 3}, {"x": 3}]
+
+    output, counter = run(r"""
+x = { y = 4; y + 2 }
+""", test_dataset())
+    assert output.tolist() == [{"x": 6}, {"x": 6}, {"x": 6}, {"x": 6}]
+
+    output, counter = run(r"""
+y = 10
+x = { y = 4; y + 2 }
+""", test_dataset())
+    assert output.tolist() == [{"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}]
 
 def test_tabular():
     output, counter = run(r"""
