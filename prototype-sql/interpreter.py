@@ -25,7 +25,15 @@ class SymbolTable:
         elif self.parent is not None:
             return self.parent[where]
         else:
-            raise parser.QueryError("unrecognized variable or function name: {0}".format(repr(where)), line, source)
+            raise parser.QueryError("symbol {0} is missing in some or all cases (prepend with '?' to ignore)".format(repr(where)), line, source)
+
+    def __contains__(self, where):
+        if where in self.table:
+            return True
+        elif self.parent is not None:
+            return where in self.parent
+        else:
+            return False
 
     def __getitem__(self, where):
         return self.get(where)
@@ -605,6 +613,8 @@ def runstep(node, symbols, counter, weight, rowkey):
         return data.ValueInstance(node.value, None, index.DerivedColKey(node))
 
     elif isinstance(node, parser.Symbol):
+        if node.maybe and node.symbol not in symbols:
+            return None
         return symbols[node.symbol]
 
     elif isinstance(node, parser.Block):
@@ -623,7 +633,20 @@ def runstep(node, symbols, counter, weight, rowkey):
     #     raise NotImplementedError(node)
 
     elif isinstance(node, parser.GetAttr):
-        raise NotImplementedError(node)
+        obj = runstep(node.object, symbols, counter, weight, rowkey)
+        if obj is None:
+            return None
+
+        if not isinstance(obj, data.RecordInstance):
+            raise parser.QueryError("value to the left of '.' (get-attribute) must be a record", node.object.line, node.source)
+
+        if node.field not in obj:
+            if node.maybe:
+                return None
+            else:
+                raise parser.QueryError("attribute {0} is missing in some or all cases".format(repr(node.field)), node.object.line, node.source)
+        else:
+            return obj[node.field]
 
     elif isinstance(node, parser.Pack):
         container = runstep(node.container, symbols, counter, weight, rowkey)
@@ -636,10 +659,10 @@ def runstep(node, symbols, counter, weight, rowkey):
         assert rowkey == container.row
         out = data.ListInstance([], rowkey, index.DerivedColKey(node))
 
-        for i, tup in enumerate(itertools.combinations(container.value, len(node.namelist))):
+        for i, tup in enumerate(itertools.combinations(container.value, len(node.names))):
             row = index.RowKey(rowkey.index + (i,), index.CrossRef.fromtuple(x.row.ref for x in tup))
             obj = data.RecordInstance({}, row, out.col)
-            for n, x in zip(node.namelist, tup):
+            for n, x in zip(node.names, tup):
                 obj[n] = x
             out.append(obj)
 
@@ -672,7 +695,7 @@ def runstep(node, symbols, counter, weight, rowkey):
         return out
 
     elif isinstance(node, parser.Has):
-        raise NotImplementedError(node)
+        return data.ValueInstance(all(x in symbols for x in node.names), rowkey, index.DerivedColKey(node))
 
     elif isinstance(node, parser.Assignment):
         value = runstep(node.expression, symbols, counter, weight, rowkey)
@@ -1021,12 +1044,43 @@ grouped = muons as m1 cross muons as m2 group by m2
 
     output, counter = run(r"""
 x = 3
-grouped = muons max by pt
+extreme = muons max by pt
 """, test_dataset())
-    assert output.tolist() == [{"x": 3, "grouped": {"pt": 3.3, "iso": 100}}, {"x": 3}, {"x": 3, "grouped": {"pt": 5.5, "iso": 30}}, {"x": 3, "grouped": {"pt": 9.9, "iso": 4}}]
+    assert output.tolist() == [{"x": 3, "extreme": {"pt": 3.3, "iso": 100}}, {"x": 3}, {"x": 3, "extreme": {"pt": 5.5, "iso": 30}}, {"x": 3, "extreme": {"pt": 9.9, "iso": 4}}]
 
     output, counter = run(r"""
 x = 3
-grouped = muons min by pt
+extreme = muons min by pt
 """, test_dataset())
-    assert output.tolist() == [{"x": 3, "grouped": {"pt": 1.1, "iso": 0}}, {"x": 3}, {"x": 3, "grouped": {"pt": 4.4, "iso": 50}}, {"x": 3, "grouped": {"pt": 6.6, "iso": 1}}]
+    assert output.tolist() == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}}]
+
+    output, counter = run(r"""
+extreme = muons min by pt
+whatever = has extreme
+""", test_dataset())
+    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": True}, {"whatever": False}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": True}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": True}]
+
+    output, counter = run(r"""
+extreme = muons min by pt
+whatever = if has extreme then extreme.iso else -100
+""", test_dataset())
+    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"whatever": -100}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
+
+    output, counter = run(r"""
+x = 3
+extreme = muons min by pt
+whatever = if has extreme then extreme.iso
+""", test_dataset())
+    assert output.tolist() == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
+
+    output, counter = run(r"""
+extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
+whatever = if has extreme then extreme?.iso2
+""", test_dataset())
+    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
+
+    output, counter = run(r"""
+extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
+whatever = ?extreme?.iso2
+""", test_dataset())
+    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]

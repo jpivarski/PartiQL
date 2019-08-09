@@ -44,8 +44,7 @@ weight:     "weight" "by" expression
 axes:       axis ("," axis)*
 axis:       expression ["by" expression]
 
-expression: tabular | has
-has:        "has" namelist
+expression: tabular
 
 tabular:    minmaxby
 minmaxby:   groupby    | minmaxby "min" "by" scalar -> minby | minmaxby "max" "by" scalar -> maxby
@@ -62,7 +61,8 @@ scalar:     branch
 branch:     or         | "if" or "then" branch ["else" branch]
 or:         and        | or "or" and
 and:        not        | and "and" not
-not:        comparison | "not" not -> isnot
+not:        has        | "not" not -> isnot
+has:        comparison | "has" namelist -> ishas
 comparison: arith | arith "==" arith -> eq | arith "!=" arith -> ne
                   | arith ">" arith -> gt  | arith ">=" arith -> ge
                   | arith "<" arith -> lt  | arith "<=" arith -> le
@@ -75,15 +75,17 @@ call:    atom     | call trailer
 atom: "(" expression ")"
     | "{" blockitems "}" -> block
     | CNAME -> symbol
+    | "?" CNAME -> maybesymbol
     | INT -> int
     | FLOAT -> float
     | ESCAPED_STRING -> string
 
 namelist: CNAME | "(" CNAME ("," CNAME)* ")"
-arglist: expression ("," expression)*
-trailer: "(" arglist? ")" -> args
-       | "." CNAME -> attr
-//     | "[" arglist "]" -> items    // getitem would provide access to list order; let's work with pure sets
+arglist:  expression ("," expression)*
+trailer:  "(" arglist? ")" -> args
+       |  "." CNAME -> attr
+       |  "?." CNAME -> maybeattr
+//     |  "[" arglist "]" -> items    // getitem would provide access to list order; let's work with pure sets
 
 COMMENT: "#" /.*/ | "//" /.*/ | "/*" /(.|\n|\r)*/ "*/"
 
@@ -184,7 +186,10 @@ class Literal(Expression):
     fields = ("value",)
 
 class Symbol(Expression):
-    fields = ("symbol",)
+    fields = ("symbol", "maybe")
+
+    def __init__(self, symbol, maybe=False, line=None, source=None):
+        super(Symbol, self).__init__(symbol, maybe, line=line, source=source)
 
     def replace(self, replacements):
         return replacements.get(self.symbol, self)
@@ -205,16 +210,16 @@ class Call(Expression):
 #     fields = ("container", "where")
 
 class GetAttr(Expression):
-    fields = ("object", "field")
+    fields = ("object", "field", "maybe")
 
 class Pack(Expression):
-    fields = ("container", "namelist")
+    fields = ("container", "names")
 
 class With(Expression):
     fields = ("container", "body")
 
 class Has(Expression):
-    fields = ("namelist",)
+    fields = ("names",)
 
 class Assignment(BlockItem):
     fields = ("symbol", "expression")
@@ -279,10 +284,11 @@ def parse(source):
             macros[name] = ([str(x) for x in node.children[1:-1]], MacroBlock(toast(node.children[-1], macros, name), source=source))
             return None
 
-        elif node.data == "symbol":
+        elif node.data in ("symbol", "maybesymbol"):
             if str(node.children[0]) in macros or str(node.children[0]) == defining:
                 raise QueryError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source, defining)
-            return Symbol(str(node.children[0]), line=node.children[0].line, source=source)
+            return Symbol(str(node.children[0]), node.data == "maybesymbol", line=node.children[0].line, source=source)
+
         elif node.data == "int":
             return Literal(int(str(node.children[0])), line=node.children[0].line, source=source)
 
@@ -298,6 +304,9 @@ def parse(source):
         elif node.data in ("pos", "neg", "isnot") and len(node.children) == 1:
             return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros, defining)], source=source)
 
+        elif node.data == "ishas":
+            return Has(toast(node.children[0], macros, defining), source=source)
+
         elif node.data == "branch" and len(node.children) == 2:
             return Call(Symbol("if"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
@@ -306,7 +315,9 @@ def parse(source):
 
         elif node.data == "call" and len(node.children) == 2:
             if node.children[1].data == "attr":
-                return GetAttr(toast(node.children[0], macros, defining), str(node.children[1].children[0]), source=source)
+                return GetAttr(toast(node.children[0], macros, defining), str(node.children[1].children[0]), False, source=source)
+            elif node.children[1].data == "maybeattr":
+                return GetAttr(toast(node.children[0], macros, defining), str(node.children[1].children[0]), True, source=source)
 
             args = [toast(x, macros, defining) for x in node.children[1].children[0].children] if len(node.children[1].children) != 0 else []
 
@@ -351,9 +362,6 @@ def parse(source):
         elif node.data == "maxby" and len(node.children) == 2:
             return Call(Symbol("max"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
-        elif node.data == "has":
-            return Has(toast(node.children[0], macros, defining), source=source)
-
         elif node.data == "assignment":
             return Assignment(str(node.children[0]), toast(node.children[1], macros, defining), line=node.children[0].line, source=source)
 
@@ -388,7 +396,7 @@ def parse(source):
             weight, named, titled = getattributes(node.children[1:-1], source, macros, defining)
             return Cut(toast(node.children[0], macros, defining), weight, named, titled, toast(node.children[-1], macros, defining), source=source)
 
-        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "uniondiff", "intercross", "wherewith", "pack", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
+        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "uniondiff", "intercross", "wherewith", "pack", "scalar", "branch", "or", "and", "not", "has", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             out = toast(node.children[0], macros, defining)
             if isinstance(out, MacroBlock) and len(out.body) == 1:
                 return out.body[0]
@@ -465,6 +473,7 @@ x""") == [Symbol("x")]
 
 def test_expressions():
     assert parse(r"x") == [Symbol("x")]
+    assert parse(r"?x") == [Symbol("x", True)]
     assert parse(r"1") == [Literal(1)]
     assert parse(r"3.14") == [Literal(3.14)]
     assert parse(r'"hello"') == [Literal("hello")]
@@ -474,8 +483,10 @@ def test_expressions():
     # assert parse(r"a[0]") == [GetItem(Symbol("a"), [Literal(0)])]
     # assert parse(r"a[0][i]") == [GetItem(GetItem(Symbol("a"), [Literal(0)]), [Symbol("i")])]
     # assert parse(r"a[0, i]") == [GetItem(Symbol("a"), [Literal(0), Symbol("i")])]
-    assert parse(r"a.b") == [GetAttr(Symbol("a"), "b")]
-    assert parse(r"a.b.c") == [GetAttr(GetAttr(Symbol("a"), "b"), "c")]
+    assert parse(r"a.b") == [GetAttr(Symbol("a"), "b", False)]
+    assert parse(r"a.b.c") == [GetAttr(GetAttr(Symbol("a"), "b", False), "c", False)]
+    assert parse(r"a?.b") == [GetAttr(Symbol("a"), "b", True)]
+    assert parse(r"a?.b?.c") == [GetAttr(GetAttr(Symbol("a"), "b", True), "c", True)]
     assert parse(r"x**2") == [Call(Symbol("**"), [Symbol("x"), Literal(2)])]
     assert parse(r"2*x") == [Call(Symbol("*"), [Literal(2), Symbol("x")])]
     assert parse(r"x/10") == [Call(Symbol("/"), [Symbol("x"), Literal(10)])]
