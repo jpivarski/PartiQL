@@ -76,8 +76,9 @@ class Counter:
         self.sumw2 += w**2
 
 class DirectoryCounter(Counter):
-    def __init__(self, line=None, source=None):
+    def __init__(self, title=None, line=None, source=None):
         super(DirectoryCounter, self).__init__(line=line, source=source)
+        self.title = title
         self.n = 0
         self.sumw = 0.0
         self.sumw2 = 0.0
@@ -386,7 +387,7 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
         return None
 
     if not (isinstance(predicate, data.ValueInstance) and isinstance(predicate.value, bool)):
-        raise parser.QueryError("predicte of if/then/else must be boolean", node.arguments[0].line, node.source)
+        raise parser.QueryError("predicte of if/then/else must evaluate to true or false", node.arguments[0].line, node.source)
     if predicate.value:
         return runstep(node.arguments[1], symbols, counter, weight, rowkey)
     elif len(node.arguments) == 2:
@@ -761,17 +762,59 @@ def runstep(node, symbols, counter, weight, rowkey):
             raise parser.QueryError("components must all be missing or none be missing", node.line, node.source)
 
     elif isinstance(node, parser.Vary):
+        outscope = None
+
         for trial in node.trials:
             scope = SymbolTable(symbols)
             for assignment in trial.assignments:
                 runstep(assignment, scope, counter, weight, rowkey)
             if trial.name not in counter:
                 counter[trial.name] = DirectoryCounter(line=trial.line, source=trial.source)
+            counter[trial.name].fill(weight)
+
+            if outscope is None:
+                scope = outscope = SymbolTable(scope)
             for x in node.body:
                 runstep(x, scope, counter[trial.name], weight, rowkey)
 
+        if outscope is not None:
+            for n in outscope:
+                symbols[n] = outscope[n]
+
     elif isinstance(node, parser.Cut):
-        raise NotImplementedError(node)
+        if node.name not in counter:
+            if node.titled is None:
+                title = None
+            else:
+                title = runstep(node.titled, symbols, counter, weight, rowkey)
+                if title is not None:
+                    if isinstance(title, data.ValueInstance) and isinstance(title.value, str):
+                        title = title.value
+                    else:
+                        raise parser.QueryError("cut title must evaluate to a string", node.titled.line, node.titled.source)
+            counter[node.name] = DirectoryCounter(title, line=node.line, source=node.source)
+
+        result = runstep(node.expression, symbols, counter, weight, rowkey)
+        if result is None:
+            return None
+
+        if not (isinstance(result, data.ValueInstance) and isinstance(result.value, bool)):
+            raise parser.QueryError("cut expression must evaluate to true or false", node.expression.line, node.expression.source)
+        if result.value is False:
+            return None
+
+        if node.weight is not None:
+            result = runstep(node.weight, symbols, counter, weight, rowkey)
+            if result is None:
+                return None
+            if not (isinstance(result, data.ValueInstance) and isinstance(result.value, (int, float))):
+                raise parser.QueryError("cut weight must evaluate to a number", node.weight.line, node.weight.source)
+            weight = weight * result.value
+
+        counter[node.name].fill(weight)
+
+        for x in node.body:
+            runstep(x, symbols, counter[node.name], weight, rowkey)
 
     else:
         assert False, repr(type(node), node)
@@ -1178,6 +1221,22 @@ cut met > 200 {
     hist met by regular(5, 0, 500)
 }
 """, test_dataset())
-    print(counter.allkeys())
+    assert counter.allkeys() == ["0", "0/0"]
+    assert counter["0/0"].numpy()[0].tolist() == [0, 0, 0, 1, 1]
 
-    assert False
+    output, counter = run(r"""
+cut met > 200 weight by 2 {
+    hist met by regular(5, 0, 500)
+}
+""", test_dataset())
+    assert counter.allkeys() == ["0", "0/0"]
+    assert counter["0/0"].numpy()[0].tolist() == [0, 0, 0, 2, 2]
+
+    output, counter = run(r"""
+cut met > 200 named "one" titled "two" {
+    hist met by regular(5, 0, 500)
+}
+""", test_dataset())
+    assert counter.allkeys() == ["one", "one/0"]
+    assert counter["one/0"].numpy()[0].tolist() == [0, 0, 0, 1, 1]
+    assert counter["one"].title == "two"
