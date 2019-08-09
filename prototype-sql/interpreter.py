@@ -123,22 +123,22 @@ class Unspecified(Binning):
         return None
 
 class Regular(Binning):
-    def __init__(self, num, low, high):
-        self.num, self.low, self.high = num, low, high
+    def __init__(self, numbins, low, high):
+        self.numbins, self.low, self.high = numbins, low, high
 
     def __repr__(self):
-        return "Regular({0}, {1}, {2})".format(self.num, self.low, self.high)
+        return "Regular({0}, {1}, {2})".format(self.numbins, self.low, self.high)
 
     def num(self, data):
-        return self.num
+        return self.numbins
 
     def range(self, data):
         return (self.low, self.high)
 
 class Histogram(Counter):
-    def __init__(self, binnings, line=None, source=None):
+    def __init__(self, binnings, title, line=None, source=None):
         super(Histogram, self).__init__(line=line, source=source)
-        self.binnings = binnings
+        self.binnings, self.title = binnings, title
         self.data = []
         self.weights = []
 
@@ -151,13 +151,13 @@ class Histogram(Counter):
         self.sumw += w
         self.sumw2 += w**2
         self.data.append(x)
-        self.weights.append([w])
+        self.weights.append(w)
 
     def numpy(self):
         if len(self.binnings) == 1:
-            return numpy.histogram(self.data, bins=self.binnings[0].num(self.data), range=self.binnings[0].range(self.data), weights=self.weights)
+            return numpy.histogram(numpy.array(self.data), bins=self.binnings[0].num(self.data), range=self.binnings[0].range(self.data), weights=numpy.array(self.weights).reshape(-1, 1))
         else:
-            return numpy.histogramdd(self.data, bins=[x.num(self.data) for x in self.binnings], range=[x.range(self.data) for x in self.binnings], weights=self.weights)
+            return numpy.histogramdd(numpy.array(self.data), bins=[x.num(self.data) for x in self.binnings], range=[x.range(self.data) for x in self.binnings], weights=None)  # self.weights)
 
 ################################################################################ functions
 
@@ -724,7 +724,17 @@ def runstep(node, symbols, counter, weight, rowkey):
                 else:
                     raise parser.QueryError("histogram binning must match one of these patterns: regular(int, float, float)", node.line, node.source)
 
-            counter[node.name] = Histogram(binnings, line=node.line, source=node.source)
+            if node.titled is None:
+                title = None
+            else:
+                title = runstep(node.titled, symbols, counter, weight, rowkey)
+                if title is not None:
+                    if isinstance(title, data.ValueInstance) and isinstance(title.value, str):
+                        title = title.value
+                    else:
+                        raise parser.QueryError("histogram title must evaluate to a string", node.titled.line, node.titled.source)
+
+            counter[node.name] = Histogram(binnings, title, line=node.line, source=node.source)
 
         datum = []
         for axis in node.axes:
@@ -736,13 +746,19 @@ def runstep(node, symbols, counter, weight, rowkey):
             else:
                 raise parser.QueryError("histograms can only be filled with numbers (not lists of numbers or records)", axis.line, axis.source)
 
+        if node.weight is not None:
+            result = runstep(node.weight, symbols, counter, weight, rowkey)
+            if result is None:
+                weight = 0.0
+            elif isinstance(result, data.ValueInstance) and isinstance(result.value, (int, float)):
+                weight = weight * result.value
+            else:
+                raise parser.QueryError("histogram weight must be a number", node.weight.line, node.weight.source)
+
         if all(x is not None for x in datum):
             counter[node.name].fill(datum, weight)
         elif any(x is not None for x in datum):
             raise parser.QueryError("components must all be missing or none be missing", node.line, node.source)
-
-    elif isinstance(node, parser.Axis):
-        raise NotImplementedError(node)
 
     elif isinstance(node, parser.Vary):
         raise NotImplementedError(node)
@@ -800,17 +816,6 @@ def test_dataset():
     })
     events.setindex()
     return data.instantiate(events)
-
-def test_hist():
-    output, counter = run(r"""
-hist met
-""", test_dataset())
-    assert output.tolist() == []
-    assert (counter.entries, counter.value, counter.error) == (4, 4.0, 2.0)
-    assert counter.keys() == ["0"]
-    counts, edges = counter["0"].numpy()
-    assert counts.tolist() == [1, 0, 0, 1, 0, 0, 1, 0, 0, 1]
-    assert edges.tolist() == [100, 130, 160, 190, 220, 250, 280, 310, 340, 370, 400]
 
 def test_assign():
     output, counter = run(r"""
@@ -1104,3 +1109,41 @@ extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
 whatever = ?extreme?.iso2
 """, test_dataset())
     assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
+
+def test_hist():
+    output, counter = run(r"""
+hist met
+""", test_dataset())
+    assert output.tolist() == []
+    assert (counter.entries, counter.value, counter.error) == (4, 4.0, 2.0)
+    assert counter.keys() == ["0"]
+    counts, edges = counter["0"].numpy()
+    assert counts.tolist() == [1, 0, 0, 1, 0, 0, 1, 0, 0, 1]
+    assert edges.tolist() == [100, 130, 160, 190, 220, 250, 280, 310, 340, 370, 400]
+
+    output, counter = run(r"""
+hist met by regular(10, 0, 1000)
+""", test_dataset())
+    counts, edges = counter["0"].numpy()
+    assert counts.tolist() == [0, 1, 1, 1, 1, 0, 0, 0, 0, 0]
+    assert edges.tolist() == [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+
+    output, counter = run(r"""
+hist met by regular(10, 0, 1000), met - 1 by regular(5, 0, 500)
+""", test_dataset())
+    counts, (xedges, yedges) = counter["0"].numpy()
+    assert counts.tolist() == [[0.0, 0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]]
+    assert xedges.tolist() == [0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0]
+    assert yedges.tolist() == [0.0, 100.0, 200.0, 300.0, 400.0, 500.0]
+
+    output, counter = run(r"""
+hist met by regular(10, 0, 1000) weight by 2
+""", test_dataset())
+    counts, edges = counter["0"].numpy()
+    assert counts.tolist() == [0, 2, 2, 2, 2, 0, 0, 0, 0, 0]
+    assert edges.tolist() == [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+
+    output, counter = run(r"""
+hist met by regular(10, 0, 1000) named "one" titled "two"
+""", test_dataset())
+    assert counter["one"].title == "two"
