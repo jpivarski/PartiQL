@@ -86,7 +86,7 @@ class DirectoryCounter(Counter):
     def iterkeys(self, recursive=False):
         for n, x in self.table.items():
             yield n
-            if recursive and isinstance(x, Counter):
+            if recursive and isinstance(x, DirectoryCounter):
                 for n2 in x.iterkeys(recursive=recursive):
                     yield n + "/" + n2
 
@@ -94,7 +94,7 @@ class DirectoryCounter(Counter):
         return list(self.iterkeys(recursive=recursive))
 
     def allkeys(self):
-        return keys(recursive=True)
+        return self.keys(recursive=True)
 
     def __contains__(self, where):
         return where in self.table
@@ -761,10 +761,14 @@ def runstep(node, symbols, counter, weight, rowkey):
             raise parser.QueryError("components must all be missing or none be missing", node.line, node.source)
 
     elif isinstance(node, parser.Vary):
-        raise NotImplementedError(node)
-
-    elif isinstance(node, parser.Trial):
-        raise NotImplementedError(node)
+        for trial in node.trials:
+            scope = SymbolTable(symbols)
+            for assignment in trial.assignments:
+                runstep(assignment, scope, counter, weight, rowkey)
+            if trial.name not in counter:
+                counter[trial.name] = DirectoryCounter(line=trial.line, source=trial.source)
+            for x in node.body:
+                runstep(x, scope, counter[trial.name], weight, rowkey)
 
     elif isinstance(node, parser.Cut):
         raise NotImplementedError(node)
@@ -1147,3 +1151,23 @@ hist met by regular(10, 0, 1000) weight by 2
 hist met by regular(10, 0, 1000) named "one" titled "two"
 """, test_dataset())
     assert counter["one"].title == "two"
+
+    output, counter = run(r"""
+vary by { x = 1 } by { x = 2 } by { x = 3 } {
+    hist x by regular(5, 0, 5)
+}
+""", test_dataset())
+    assert counter.allkeys() == ["0", "0/0", "1", "1/0", "2", "2/0"]
+    assert counter["0/0"].numpy()[0].tolist() == [0, 4, 0, 0, 0]
+    assert counter["1/0"].numpy()[0].tolist() == [0, 0, 4, 0, 0]
+    assert counter["2/0"].numpy()[0].tolist() == [0, 0, 0, 4, 0]
+
+    output, counter = run(r"""
+vary by { x = 1 } named "one" by { x = 2 } named "two" by { x = 3 } named "three" {
+    hist x by regular(5, 0, 5)
+}
+""", test_dataset())
+    assert counter.allkeys() == ["one", "one/0", "two", "two/0", "three", "three/0"]
+    assert counter["one/0"].numpy()[0].tolist() == [0, 4, 0, 0, 0]
+    assert counter["two/0"].numpy()[0].tolist() == [0, 0, 4, 0, 0]
+    assert counter["three/0"].numpy()[0].tolist() == [0, 0, 0, 4, 0]

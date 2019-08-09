@@ -173,14 +173,14 @@ class Named:
             raise QueryError("name {0} already exists".format(repr(self.name)), x.line, self.source, None)
         names.add(self.name)
 
-        names = set()
+        subnames = set()
         for n in self.fields:
             x = getattr(self, n)
             if isinstance(x, list):
                 for y in x:
-                    y.setnames(names)
+                    y.setnames(subnames)
             elif isinstance(x, AST):
-                x.setnames(names)
+                x.setnames(subnames)
 
 class Literal(Expression):
     fields = ("value",)
@@ -232,6 +232,13 @@ class Axis(AST):
 
 class Vary(Statement):
     fields = ("trials", "body")
+
+    def setnames(self, names):
+        for x in self.trials:
+            x.setnames(names)
+        subnames = set()
+        for x in self.body:
+            x.setnames(subnames)
 
 class Trial(Named, AST):
     fields = ("assignments", "named")
