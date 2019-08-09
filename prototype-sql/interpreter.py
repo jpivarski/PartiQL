@@ -418,79 +418,91 @@ def wherefcn(node, symbols, counter, weight, rowkey):
 
 fcns["where"] = wherefcn
 
-def crossfcn(node, symbols, counter, weight, rowkey):
-    left, right = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
-    if left is None or right is None:
-        return None
+class SetFunction:
+    def __call__(self, node, symbols, counter, weight, rowkey):
+        left, right = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
+        if left is None or right is None:
+            return None
 
-    if not isinstance(left, data.ListInstance):
-        raise parser.LanguageError("left and right of 'cross' must be lists", node.arguments[0].line, node.arguments[0].source)
-    if not isinstance(right, data.ListInstance):
-        raise parser.LanguageError("left and right of 'cross' must be lists", node.arguments[1].line, node.arguments[1].source)
+        if not isinstance(left, data.ListInstance):
+            raise parser.LanguageError("left and right of '{0}' must be lists".format(self.name), node.arguments[0].line, node.arguments[0].source)
+        if not isinstance(right, data.ListInstance):
+            raise parser.LanguageError("left and right of '{0}' must be lists".format(self.name), node.arguments[1].line, node.arguments[1].source)
 
-    assert rowkey == left.row and rowkey == right.row
-    out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+        assert rowkey == left.row and rowkey == right.row
 
-    i = 0
-    for x in left.value:
-        for y in right.value:
-            if not isinstance(x, data.RecordInstance):
-                raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[0].line, node.arguments[0].source)
-            if not isinstance(y, data.RecordInstance):
-                raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[1].line, node.arguments[1].source)
+        if not all(isinstance(x, data.RecordInstance) for x in left.value):
+            raise parser.LanguageError("left and right of '{0}' must contain records".format(self.name), node.arguments[0].line, node.arguments[0].source)
+        if not all(isinstance(x, data.RecordInstance) for x in right.value):
+            raise parser.LanguageError("left and right of '{0}' must contain records".format(self.name), node.arguments[1].line, node.arguments[1].source)
 
-            row = index.RowKey(rowkey.index + (i,), index.CrossRef(x.row.ref, y.row.ref))
-            i += 1
+        out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+        self.fill(rowkey, left, right, out)
+        return out
 
-            obj = data.RecordInstance({}, row, out.col)
+class IntersectFunction(SetFunction):
+    name = "intersect"
+
+    def fill(self, rowkey, left, right, out):
+        raise NotImplementedError
+
+fcns["intersect"] = IntersectFunction()
+
+class CrossFunction(SetFunction):
+    name = "cross"
+
+    def fill(self, rowkey, left, right, out):
+        i = 0
+        for x in left.value:
+            for y in right.value:
+                if not isinstance(x, data.RecordInstance):
+                    raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[0].line, node.arguments[0].source)
+                if not isinstance(y, data.RecordInstance):
+                    raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[1].line, node.arguments[1].source)
+
+                row = index.RowKey(rowkey.index + (i,), index.CrossRef(x.row.ref, y.row.ref))
+                i += 1
+
+                obj = data.RecordInstance({}, row, out.col)
+                for n in x.fields():
+                    obj[n] = x[n]
+                for n in y.fields():
+                    if n not in obj:
+                        obj[n] = y[n]
+
+                out.append(obj)
+
+fcns["cross"] = CrossFunction()
+
+class UnionFunction(SetFunction):
+    name = "union"
+
+    def fill(self, rowkey, left, right, out):
+        seen = {}
+
+        for x in left.value + right.value:
+            if x.row in seen:
+                obj = seen[x.row]
+            else:
+                obj = data.RecordInstance({}, x.row, out.col)
+
             for n in x.fields():
-                obj[n] = x[n]
-            for n in y.fields():
                 if n not in obj:
-                    obj[n] = y[n]
+                    obj[n] = x[n]
 
-            out.append(obj)
+            if x.row not in seen:
+                seen[x.row] = obj
+                out.append(obj)
 
-    return out
+fcns["union"] = UnionFunction()
 
-fcns["cross"] = crossfcn
+class ExceptFunction(SetFunction):
+    name = "except"
 
-def unionfcn(node, symbols, counter, weight, rowkey):
-    left, right = [runstep(x, symbols, counter, weight, rowkey) for x in node.arguments]
-    if left is None or right is None:
-        return None
+    def fill(self, rowkey, left, right, out):
+        raise NotImplementedError
 
-    if not isinstance(left, data.ListInstance):
-        raise parser.LanguageError("left and right of 'union' must be lists", node.arguments[0].line, node.arguments[0].source)
-    if not isinstance(right, data.ListInstance):
-        raise parser.LanguageError("left and right of 'union' must be lists", node.arguments[1].line, node.arguments[1].source)
-
-    assert rowkey == left.row and rowkey == right.row
-    out = data.ListInstance([], rowkey, index.DerivedColKey(node))
-    seen = {}
-
-    if not all(isinstance(x, data.RecordInstance) for x in left.value):
-        raise parser.LanguageError("left and right of 'union' must contain records", node.arguments[0].line, node.arguments[0].source)
-    if not all(isinstance(x, data.RecordInstance) for x in right.value):
-        raise parser.LanguageError("left and right of 'union' must contain records", node.arguments[1].line, node.arguments[1].source)
-
-    for x in left.value + right.value:
-        if x.row in seen:
-            obj = seen[x.row]
-        else:
-            obj = data.RecordInstance({}, x.row, out.col)
-
-        for n in x.fields():
-            if n not in obj:
-                obj[n] = x[n]
-
-        if x.row not in seen:
-            seen[x.row] = obj
-            out.append(obj)
-
-    return out
-
-fcns["union"] = unionfcn
+fcns["except"] = ExceptFunction()
 
 ################################################################################ run
 
@@ -823,17 +835,17 @@ leptoquarks = muons where iso > 2
 """, test_dataset())
     assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
-#     output, counter = run(r"""
-# leptoquarks = muons where iso > 2 union muons
-# """, test_dataset())
-#     assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
-#
-#     output, counter = run(r"""
-# leptoquarks = muons where iso > 2 with { iso2 = 2*iso } union muons
-# """, test_dataset())
-#     assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
-#
-#     output, counter = run(r"""
-# leptoquarks = muons cross jets
-# """, test_dataset())
-#     assert output.tolist() == [{"leptoquarks": [{"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 5.5, "mass": 15, "iso": 30}, {"pt": 5.5, "mass": 15, "iso": 30}]}, {"leptoquarks": [{"pt": 6.6, "mass": 9, "iso": 1}, {"pt": 6.6, "mass": 8, "iso": 1}, {"pt": 6.6, "mass": 7, "iso": 1}, {"pt": 6.6, "mass": 6, "iso": 1}, {"pt": 7.7, "mass": 9, "iso": 2}, {"pt": 7.7, "mass": 8, "iso": 2}, {"pt": 7.7, "mass": 7, "iso": 2}, {"pt": 7.7, "mass": 6, "iso": 2}, {"pt": 8.8, "mass": 9, "iso": 3}, {"pt": 8.8, "mass": 8, "iso": 3}, {"pt": 8.8, "mass": 7, "iso": 3}, {"pt": 8.8, "mass": 6, "iso": 3}, {"pt": 9.9, "mass": 9, "iso": 4}, {"pt": 9.9, "mass": 8, "iso": 4}, {"pt": 9.9, "mass": 7, "iso": 4}, {"pt": 9.9, "mass": 6, "iso": 4}]}]
+    output, counter = run(r"""
+leptoquarks = muons where iso > 2 union muons
+""", test_dataset())
+    assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
+
+    output, counter = run(r"""
+leptoquarks = muons where iso > 2 with { iso2 = 2*iso } union muons
+""", test_dataset())
+    assert output.tolist() == [{"leptoquarks": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"leptoquarks": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
+
+    output, counter = run(r"""
+leptoquarks = muons cross jets
+""", test_dataset())
+    assert output.tolist() == [{"leptoquarks": [{"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}]}, {"leptoquarks": []}, {"leptoquarks": [{"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 5.5, "mass": 15, "iso": 30}, {"pt": 5.5, "mass": 15, "iso": 30}]}, {"leptoquarks": [{"pt": 6.6, "mass": 9, "iso": 1}, {"pt": 6.6, "mass": 8, "iso": 1}, {"pt": 6.6, "mass": 7, "iso": 1}, {"pt": 6.6, "mass": 6, "iso": 1}, {"pt": 7.7, "mass": 9, "iso": 2}, {"pt": 7.7, "mass": 8, "iso": 2}, {"pt": 7.7, "mass": 7, "iso": 2}, {"pt": 7.7, "mass": 6, "iso": 2}, {"pt": 8.8, "mass": 9, "iso": 3}, {"pt": 8.8, "mass": 8, "iso": 3}, {"pt": 8.8, "mass": 7, "iso": 3}, {"pt": 8.8, "mass": 6, "iso": 3}, {"pt": 9.9, "mass": 9, "iso": 4}, {"pt": 9.9, "mass": 8, "iso": 4}, {"pt": 9.9, "mass": 7, "iso": 4}, {"pt": 9.9, "mass": 6, "iso": 4}]}]
