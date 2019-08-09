@@ -388,6 +388,44 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
 
 fcns["if"] = ifthenelse
 
+class MinMaxFunction:
+    def __init__(self, ismin):
+        self.ismin = ismin
+
+    def __call__(self, node, symbols, counter, weight, rowkey):
+        container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
+        if container is None:
+            return None
+
+        if not isinstance(container, data.ListInstance):
+            raise parser.QueryError("left of '{0}' must be a list".format("min by" if self.ismin else "max by"), node.arguments[0].line, node.arguments[0].source)
+
+        assert rowkey == container.row
+        bestval, bestobj = None, None
+
+        for x in container.value:
+            if not isinstance(x, data.RecordInstance):
+                raise parser.QueryError("left of '{0}' must contain records".format("min by" if self.ismin else "max by"), node.arguments[0].line, node.arguments[0].source)
+
+            scope = SymbolTable(symbols)
+            for n in x.fields():
+                scope[n] = x[n]
+
+            result = runstep(node.arguments[1], scope, counter, weight, x.row)
+            if result is not None:
+                if isinstance(result, data.ValueInstance) and isinstance(result.value, (int, float)):
+                    result = result.value
+                else:
+                    raise parser.QueryError("right of '{0}' must resolve to a number".format("min by" if self.ismin else "max by"), node.arguments[1].line, node.arguments[1].source)
+                if bestval is None or (self.ismin and result < bestval) or (not self.ismin and result > bestval):
+                    bestval = result
+                    bestobj = x
+
+        return bestobj   # maybe None (if list is empty or all results are unknown)
+
+fcns["min"] = MinMaxFunction(True)
+fcns["max"] = MinMaxFunction(False)
+
 def wherefcn(node, symbols, counter, weight, rowkey):
     container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
     if container is None:
@@ -980,3 +1018,15 @@ grouped = muons as m1 cross muons as m2 group by m1
 grouped = muons as m1 cross muons as m2 group by m2
 """, test_dataset())
     assert output.tolist() == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}], [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
+
+    output, counter = run(r"""
+x = 3
+grouped = muons max by pt
+""", test_dataset())
+    assert output.tolist() == [{"x": 3, "grouped": {"pt": 3.3, "iso": 100}}, {"x": 3}, {"x": 3, "grouped": {"pt": 5.5, "iso": 30}}, {"x": 3, "grouped": {"pt": 9.9, "iso": 4}}]
+
+    output, counter = run(r"""
+x = 3
+grouped = muons min by pt
+""", test_dataset())
+    assert output.tolist() == [{"x": 3, "grouped": {"pt": 1.1, "iso": 0}}, {"x": 3}, {"x": 3, "grouped": {"pt": 4.4, "iso": 50}}, {"x": 3, "grouped": {"pt": 6.6, "iso": 1}}]
