@@ -1152,6 +1152,7 @@ hist met by regular(10, 0, 1000) named "one" titled "two"
 """, test_dataset())
     assert counter["one"].title == "two"
 
+def test_cutvary():
     output, counter = run(r"""
 vary by { x = 1 } by { x = 2 } by { x = 3 } {
     hist x by regular(5, 0, 5)
@@ -1171,3 +1172,12 @@ vary by { x = 1 } named "one" by { x = 2 } named "two" by { x = 3 } named "three
     assert counter["one/0"].numpy()[0].tolist() == [0, 4, 0, 0, 0]
     assert counter["two/0"].numpy()[0].tolist() == [0, 0, 4, 0, 0]
     assert counter["three/0"].numpy()[0].tolist() == [0, 0, 0, 4, 0]
+
+    output, counter = run(r"""
+cut met > 200 {
+    hist met by regular(5, 0, 500)
+}
+""", test_dataset())
+    print(counter.allkeys())
+
+    assert False
