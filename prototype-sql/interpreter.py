@@ -511,7 +511,11 @@ class ExceptFunction(SetFunction):
     name = "except"
 
     def fill(self, rowkey, left, right, out):
-        raise NotImplementedError
+        rights = {x.row for x in right.value}
+
+        for x in left.value:
+            if x.row not in rights:
+                out.append(x)
 
 fcns["except"] = ExceptFunction()
 
@@ -910,3 +914,13 @@ joined = muons where pt < 5 intersect muons where iso > 2
 joined = muons where pt < 5 and iso > 2
 """, test_dataset())
     assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
+
+    output, counter = run(r"""
+joined = muons where pt < 7 except muons where iso > 2
+""", test_dataset())
+    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
+
+    output, counter = run(r"""
+joined = muons where pt < 7 and not iso > 2
+""", test_dataset())
+    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
