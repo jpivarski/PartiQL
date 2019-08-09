@@ -49,12 +49,10 @@ has:        "has" namelist
 
 tabular:    minmaxby
 minmaxby:   groupby    | minmaxby "min" "by" scalar -> minby | minmaxby "max" "by" scalar -> maxby
-groupby:    join       | groupby "group" "by" scalar
-join:       wherewith  | join ["inner"]         "join"  wherewith -> innerjoin // or unicode 2A1D
-                       | join "left" ["outer"]  "join"  wherewith -> leftjoin  // or unicode 27D5
-                       | join "right" ["outer"] "join"  wherewith -> rightjoin // or unicode 27D6
-                       | join "full" ["outer"]  "join"  wherewith -> fulljoin  // or unicode 27D7
-                       | join "cross"          ["join"] wherewith -> crossjoin // or unicode 2A2F, 00D7
+groupby:    union      | groupby "group" "by" scalar
+union:      cross      | union "union" cross
+cross:      join       | cross "cross" join
+join:       wherewith  | join "join" wherewith
 wherewith:  pack       | wherewith "with" "{" blockitems "}" -> with | wherewith "where" scalar -> where
 pack:       scalar     | scalar "as" namelist
 
@@ -240,8 +238,7 @@ def parse(source):
     op2fcn = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**",
               "pos": "*1", "neg": "*-1",
               "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in",
-              "and": "and", "or": "or", "isnot": "not",
-              "innerjoin": "join", "leftjoin": "left", "rightjoin": "right", "fulljoin": "full", "crossjoin": "cross"}
+              "and": "and", "or": "or", "isnot": "not"}
 
     class Macro(Statement):
         fields = ("parameters", "body")
@@ -340,8 +337,8 @@ def parse(source):
         elif node.data == "where" and len(node.children) == 2:
             return Call(Symbol("where"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
-        elif node.data in ("innerjoin", "leftjoin", "rightjoin", "fulljoin", "crossjoin") and len(node.children) == 2:
-            return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
+        elif node.data in ("join", "cross", "union") and len(node.children) == 2:
+            return Call(Symbol(node.data), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
         elif node.data == "groupby" and len(node.children) == 2:
             return Call(Symbol("group"), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
@@ -389,7 +386,7 @@ def parse(source):
             weight, named, titled = getattributes(node.children[1:-1], source, macros, defining)
             return Cut(toast(node.children[0], macros, defining), weight, named, titled, toast(node.children[-1], macros, defining), source=source)
 
-        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "join", "wherewith", "pack", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
+        elif len(node.children) == 1 and node.data in ("statement", "blockitem", "expression", "tabular", "minmaxby", "groupby", "union", "cross", "join", "wherewith", "pack", "scalar", "branch", "or", "and", "not", "comparison", "arith", "term", "factor", "pow", "call", "atom"):
             out = toast(node.children[0], macros, defining)
             if isinstance(out, MacroBlock) and len(out.body) == 1:
                 return out.body[0]
@@ -534,27 +531,19 @@ def test_table():
     assert parse(r"table where x > 0") == [Call(Symbol("where"), [Symbol("table"), Call(Symbol(">"), [Symbol("x"), Literal(0)])])]
     assert parse(r"table with { x = 3 } where x > 0") == [Call(Symbol("where"), [With(Symbol("table"), [Assignment("x", Literal(3))]), Call(Symbol(">"), [Symbol("x"), Literal(0)])])]
     assert parse(r"a join b") == [Call(Symbol("join"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a inner join b") == [Call(Symbol("join"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a left join b") == [Call(Symbol("left"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a left outer join b") == [Call(Symbol("left"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a right join b") == [Call(Symbol("right"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a right outer join b") == [Call(Symbol("right"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a full join b") == [Call(Symbol("full"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a full outer join b") == [Call(Symbol("full"), [Symbol("a"), Symbol("b")])]
     assert parse(r"a cross b") == [Call(Symbol("cross"), [Symbol("a"), Symbol("b")])]
-    assert parse(r"a cross join b") == [Call(Symbol("cross"), [Symbol("a"), Symbol("b")])]
-    # assert parse(r"a cross b join c") == [Call(Symbol("cross"), [Symbol("a"), Call(Symbol("join"), [Symbol("b"), Symbol("c")])])]
-    # assert parse(r"(a cross b) join c") == [Call(Symbol("join"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    # assert parse(r"a union b cross c") == [Call(Symbol("union"), [Symbol("a"), Call(Symbol("cross"), [Symbol("b"), Symbol("c")])])]
-    # assert parse(r"(a union b) cross c") == [Call(Symbol("cross"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    # assert parse(r"a union b join c") == [Call(Symbol("union"), [Symbol("a"), Call(Symbol("join"), [Symbol("b"), Symbol("c")])])]
-    # assert parse(r"(a union b) join c") == [Call(Symbol("join"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    # assert parse(r"a join b join c") == [Call(Symbol("join"), [Call(Symbol("join"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    # assert parse(r"a cross b cross c") == [Call(Symbol("cross"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    # assert parse(r"a union b union c") == [Call(Symbol("union"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
-    # assert parse(r"table group by x") == [Call(Symbol("group"), [Symbol("table"), Symbol("x")])]
-    # assert parse(r"table min by x") == [Call(Symbol("min"), [Symbol("table"), Symbol("x")])]
-    # assert parse(r"table max by x") == [Call(Symbol("max"), [Symbol("table"), Symbol("x")])]
+    assert parse(r"a cross b join c") == [Call(Symbol("cross"), [Symbol("a"), Call(Symbol("join"), [Symbol("b"), Symbol("c")])])]
+    assert parse(r"(a cross b) join c") == [Call(Symbol("join"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a union b cross c") == [Call(Symbol("union"), [Symbol("a"), Call(Symbol("cross"), [Symbol("b"), Symbol("c")])])]
+    assert parse(r"(a union b) cross c") == [Call(Symbol("cross"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a union b join c") == [Call(Symbol("union"), [Symbol("a"), Call(Symbol("join"), [Symbol("b"), Symbol("c")])])]
+    assert parse(r"(a union b) join c") == [Call(Symbol("join"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a join b join c") == [Call(Symbol("join"), [Call(Symbol("join"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a cross b cross c") == [Call(Symbol("cross"), [Call(Symbol("cross"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"a union b union c") == [Call(Symbol("union"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
+    assert parse(r"table group by x") == [Call(Symbol("group"), [Symbol("table"), Symbol("x")])]
+    assert parse(r"table min by x") == [Call(Symbol("min"), [Symbol("table"), Symbol("x")])]
+    assert parse(r"table max by x") == [Call(Symbol("max"), [Symbol("table"), Symbol("x")])]
 
 def test_histogram():
     assert parse(r"hist pt") == [Histogram([Axis(Symbol("pt"), None)], None, None, None)]
