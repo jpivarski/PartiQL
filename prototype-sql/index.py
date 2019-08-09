@@ -1,5 +1,7 @@
 # Database-style surrogate keys.
 
+import functools
+
 class Ref:
     @staticmethod
     def new():
@@ -139,6 +141,7 @@ class ColIndex:
     def withattr(self, attr):
         return ColIndex(*(self.path + (attr,)))
 
+@functools.total_ordering
 class RowKey:
     "RowKey is an element of a RowIndex, representing a unique row by reference."
 
@@ -159,6 +162,13 @@ class RowKey:
 
     def __hash__(self):
         return hash((RowKey, self.index, self.ref))
+
+    def __lt__(self, other):
+        if not isinstance(other, RowKey):
+            raise TypeError("inequalities not supported between instances of 'RowKey' and '{0}'".format(type(other)))
+        if self.ref != other.ref:
+            raise TypeError("inequalities not supported between RowKeys with different references: {0} and {1}".format(str(self.ref), str(other.ref)))
+        return self.index < other.index
 
 class ColKey:
     "ColKey is an element of a ColIndex, representing a unique column by value."

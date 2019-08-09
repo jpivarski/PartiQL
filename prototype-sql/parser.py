@@ -2,7 +2,7 @@
 
 import lark
 
-class LanguageError(Exception):
+class QueryError(Exception):
     def __init__(self, message, line=None, source=None, defining=None):
         self.message, self.line = message, line
         if line is not None:
@@ -19,7 +19,7 @@ class LanguageError(Exception):
                     context[1]  = "{0:>4d} --> {1}".format(line, context[1])
                     context[2:] = ["{0:>4d}     {1}".format(line + 1 + i, x) for i, x in enumerate(context[2:])]
                 message = message + "\nline\n" + "\n".join(context)
-        super(LanguageError, self).__init__(message)
+        super(QueryError, self).__init__(message)
 
 grammar = r"""
 start:       NEWLINE? (statement  (NEWLINE | ";"+))* statement? NEWLINE? ";"* NEWLINE?
@@ -166,9 +166,9 @@ class Named:
         elif isinstance(self.named, Literal) and isinstance(self.named.value, str):
             self.name = self.named.value
         else:
-            raise LanguageError("name must be a constant string", self.line, self.source, None)
+            raise QueryError("name must be a constant string", self.line, self.source, None)
         if self.name in names:
-            raise LanguageError("name {0} already exists".format(repr(self.name)), x.line, self.source, None)
+            raise QueryError("name {0} already exists".format(repr(self.name)), x.line, self.source, None)
         names.add(self.name)
 
         names = set()
@@ -194,9 +194,9 @@ class Block(Expression):
 
     def validate(self):
         if len(self.body) == 0:
-            raise LanguageError("expression block may not be empty", self.line, self.source, None)
+            raise QueryError("expression block may not be empty", self.line, self.source, None)
         if not isinstance(self.body[-1], Expression):
-            raise LanguageError("in a block expression (temporary assignments inside curly brackets), the last item (separated by semicolons or line endings) must be an expression (something with a return value)", self.body[-1].line, self.source, None)
+            raise QueryError("in a block expression (temporary assignments inside curly brackets), the last item (separated by semicolons or line endings) must be an expression (something with a return value)", self.body[-1].line, self.source, None)
 
 class Call(Expression):
     fields = ("function", "arguments")
@@ -257,17 +257,17 @@ def parse(source):
                 if weight is None:
                     weight = toast(x.children[0], macros, defining)
                 else:
-                    raise LanguageError("weight may not be defined more than once", x.line, source, defining)
+                    raise QueryError("weight may not be defined more than once", x.line, source, defining)
             if x.data == "named":
                 if named is None:
                     named = toast(x.children[0], macros, defining)
                 else:
-                    raise LanguageError("name may not be defined more than once", x.line, source, defining)
+                    raise QueryError("name may not be defined more than once", x.line, source, defining)
             if x.data == "titled":
                 if titled is None:
                     titled = toast(x.children[0], macros, defining)
                 else:
-                    raise LanguageError("title may not be defined more than once", x.line, source, defining)
+                    raise QueryError("title may not be defined more than once", x.line, source, defining)
         return weight, named, titled
 
     def toast(node, macros, defining):
@@ -281,7 +281,7 @@ def parse(source):
 
         elif node.data == "symbol":
             if str(node.children[0]) in macros or str(node.children[0]) == defining:
-                raise LanguageError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source, defining)
+                raise QueryError("the name {0} should not be used as a variable and a macro".format(repr(str(node.children[0]))), node.children[0].line, source, defining)
             return Symbol(str(node.children[0]), line=node.children[0].line, source=source)
         elif node.data == "int":
             return Literal(int(str(node.children[0])), line=node.children[0].line, source=source)
@@ -315,7 +315,7 @@ def parse(source):
                     name = str(node.children[0].children[0].children[0])
                     params, body = macros[name]
                     if len(params) != len(args):
-                        raise LanguageError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line, source, defining)
+                        raise QueryError("macro {0} has {1} parameters but {2} arguments were passed".format(repr(name), len(params), len(args)), node.children[0].children[0].children[0].line, source, defining)
                     return body.replace(dict(zip(params, args)))
 
                 else:
@@ -551,6 +551,7 @@ def test_table():
     assert parse(r"a union b union c") == [Call(Symbol("union"), [Call(Symbol("union"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
     assert parse(r"a except b except c") == [Call(Symbol("except"), [Call(Symbol("except"), [Symbol("a"), Symbol("b")]), Symbol("c")])]
     assert parse(r"table group by x") == [Call(Symbol("group"), [Symbol("table"), Symbol("x")])]
+    assert parse(r"(table group by x) with { y = 4 }") == [With(Call(Symbol("group"), [Symbol("table"), Symbol("x")]), [Assignment("y", Literal(4))])]
     assert parse(r"table min by x") == [Call(Symbol("min"), [Symbol("table"), Symbol("x")])]
     assert parse(r"table max by x") == [Call(Symbol("max"), [Symbol("table"), Symbol("x")])]
 

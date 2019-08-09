@@ -25,7 +25,7 @@ class SymbolTable:
         elif self.parent is not None:
             return self.parent[where]
         else:
-            raise parser.LanguageError("unrecognized variable or function name: {0}".format(repr(where)), line, source)
+            raise parser.QueryError("unrecognized variable or function name: {0}".format(repr(where)), line, source)
 
     def __getitem__(self, where):
         return self.get(where)
@@ -168,12 +168,12 @@ class NumericalFunction:
             if x is None:
                 return None
             if not (isinstance(x, data.ValueInstance) and isinstance(x.value, (int, float))):
-                raise parser.LanguageError("all arguments in {0} must be numbers (not lists or records)".format(self.name), x.line, x.source)
+                raise parser.QueryError("all arguments in {0} must be numbers (not lists or records)".format(self.name), x.line, x.source)
 
         try:
             result = self.fcn(*[x.value for x in args])
         except Exception as err:
-            raise parser.LanguageError(str(err), node.line, node.source)
+            raise parser.QueryError(str(err), node.line, node.source)
 
         return data.ValueInstance(result, rowkey, index.DerivedColKey(node))
 
@@ -285,7 +285,7 @@ fcns["!="] = EqualityFunction(True)
 class InclusionFunction(EqualityFunction):
     def evaluate(self, node, left, right):
         if type(right) != data.ListInstance:
-            raise parser.LanguageError("value to the right of 'in' must be a list", node.line, node.source)
+            raise parser.QueryError("value to the right of 'in' must be a list", node.line, node.source)
         if self.negated:
             for x in right.value:
                 if not EqualityFunction.evaluate(self, node, left, x):
@@ -309,7 +309,7 @@ class BooleanFunction:
                     yield None
                 else:
                     if not (isinstance(arg, data.ValueInstance) and isinstance(arg.value, bool)):
-                        raise parser.LanguageError("arguments of '{0}' must be boolean".format(self.name), arg.line, arg.source)
+                        raise parser.QueryError("arguments of '{0}' must be boolean".format(self.name), arg.line, arg.source)
                     yield arg.value
         result = self.fcn(iterate())
         if result is None:
@@ -378,7 +378,7 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
         return None
 
     if not (isinstance(predicate, data.ValueInstance) and isinstance(predicate.value, bool)):
-        raise parser.LanguageError("predicte of if/then/else must be boolean", node.arguments[0].line, node.source)
+        raise parser.QueryError("predicte of if/then/else must be boolean", node.arguments[0].line, node.source)
     if predicate.value:
         return runstep(node.arguments[1], symbols, counter, weight, rowkey)
     elif len(node.arguments) == 2:
@@ -394,29 +394,70 @@ def wherefcn(node, symbols, counter, weight, rowkey):
         return None
 
     if not isinstance(container, data.ListInstance):
-        raise parser.LanguageError("left of 'where' must be a list", node.arguments[0].line, node.arguments[0].source)
+        raise parser.QueryError("left of 'where' must be a list", node.arguments[0].line, node.arguments[0].source)
 
     assert rowkey == container.row
     out = data.ListInstance([], rowkey, index.DerivedColKey(node))
 
     for x in container.value:
         if not isinstance(x, data.RecordInstance):
-            raise parser.LanguageError("left of 'where' must contain records", node.arguments[0].line, node.arguments[0].source)
+            raise parser.QueryError("left of 'where' must contain records", node.arguments[0].line, node.arguments[0].source)
 
-        subtable = SymbolTable(symbols)
+        scope = SymbolTable(symbols)
         for n in x.fields():
-            subtable[n] = x[n]
+            scope[n] = x[n]
 
-        result = runstep(node.arguments[1], subtable, counter, weight, x.row)
+        result = runstep(node.arguments[1], scope, counter, weight, x.row)
         if result is not None:
             if not (isinstance(result, data.ValueInstance) and isinstance(result.value, bool)):
-                raise parser.LanguageError("right or 'where' must be boolean", node.arguments[1].line, node.arguments[1].source)
+                raise parser.QueryError("right or 'where' must be boolean", node.arguments[1].line, node.arguments[1].source)
             if result.value:
                 out.append(x)
 
     return out
 
 fcns["where"] = wherefcn
+
+def groupfcn(node, symbols, counter, weight, rowkey):
+    container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
+    if container is None:
+        return None
+
+    if not isinstance(container, data.ListInstance):
+        raise parser.QueryError("left of 'group by' must be a list", node.arguments[0].line, node.arguments[0].source)
+
+    assert rowkey == container.row
+    out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+    groupindex = index.RowIndex([])   # new, never-before-seen index (two groupbys can't be merged)
+    groups = {}
+
+    for x in container.value:
+        if not isinstance(x, data.RecordInstance):
+            raise parser.QueryError("left of 'group by' must contain records", node.arguments[0].line, node.arguments[0].source)
+
+        scope = SymbolTable(symbols)
+        for n in x.fields():
+            scope[n] = x[n]
+
+        result = runstep(node.arguments[1], scope, counter, weight, x.row)
+        if result is not None:
+            if isinstance(result, data.ValueInstance):
+                groupkey = result.value
+            elif isinstance(result, data.ListInstance):
+                groupkey = tuple(sorted(y.row for y in result.value))
+            elif isinstance(result, data.RecordInstance):
+                groupkey = result.row
+
+            if groupkey not in groups:
+                groupindex.array.append(rowkey.index + (len(groups),))
+                groups[groupkey] = data.ListInstance([], groupindex[-1], index.DerivedColKey(node))
+                out.append(groups[groupkey])
+
+            groups[groupkey].append(x)
+
+    return out
+
+fcns["group"] = groupfcn
 
 class SetFunction:
     def __call__(self, node, symbols, counter, weight, rowkey):
@@ -425,16 +466,16 @@ class SetFunction:
             return None
 
         if not isinstance(left, data.ListInstance):
-            raise parser.LanguageError("left and right of '{0}' must be lists".format(self.name), node.arguments[0].line, node.arguments[0].source)
+            raise parser.QueryError("left and right of '{0}' must be lists".format(self.name), node.arguments[0].line, node.arguments[0].source)
         if not isinstance(right, data.ListInstance):
-            raise parser.LanguageError("left and right of '{0}' must be lists".format(self.name), node.arguments[1].line, node.arguments[1].source)
+            raise parser.QueryError("left and right of '{0}' must be lists".format(self.name), node.arguments[1].line, node.arguments[1].source)
 
         assert rowkey == left.row and rowkey == right.row
 
         if not all(isinstance(x, data.RecordInstance) for x in left.value):
-            raise parser.LanguageError("left and right of '{0}' must contain records".format(self.name), node.arguments[0].line, node.arguments[0].source)
+            raise parser.QueryError("left and right of '{0}' must contain records".format(self.name), node.arguments[0].line, node.arguments[0].source)
         if not all(isinstance(x, data.RecordInstance) for x in right.value):
-            raise parser.LanguageError("left and right of '{0}' must contain records".format(self.name), node.arguments[1].line, node.arguments[1].source)
+            raise parser.QueryError("left and right of '{0}' must contain records".format(self.name), node.arguments[1].line, node.arguments[1].source)
 
         out = data.ListInstance([], rowkey, index.DerivedColKey(node))
         self.fill(rowkey, left, right, out)
@@ -448,9 +489,9 @@ class CrossFunction(SetFunction):
         for x in left.value:
             for y in right.value:
                 if not isinstance(x, data.RecordInstance):
-                    raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[0].line, node.arguments[0].source)
+                    raise parser.QueryError("left and right of 'cross' must contain records", node.arguments[0].line, node.arguments[0].source)
                 if not isinstance(y, data.RecordInstance):
-                    raise parser.LanguageError("left and right of 'cross' must contain records", node.arguments[1].line, node.arguments[1].source)
+                    raise parser.QueryError("left and right of 'cross' must contain records", node.arguments[1].line, node.arguments[1].source)
 
                 row = index.RowKey(rowkey.index + (i,), index.CrossRef(x.row.ref, y.row.ref))
                 i += 1
@@ -538,7 +579,7 @@ def runstep(node, symbols, counter, weight, rowkey):
         if callable(function):
             return function(node, symbols, counter, weight, rowkey)
         else:
-            raise parser.LanguageError("not a function; cannot be called", node.line, node.source)
+            raise parser.QueryError("not a function; cannot be called", node.line, node.source)
 
     # elif isinstance(node, parser.GetItem):
     #     raise NotImplementedError(node)
@@ -552,7 +593,7 @@ def runstep(node, symbols, counter, weight, rowkey):
             return None
 
         if not isinstance(container, data.ListInstance):
-            raise parser.LanguageError("value to the left of 'as' must be a list", node.container.line, node.source)
+            raise parser.QueryError("value to the left of 'as' must be a list", node.container.line, node.source)
 
         assert rowkey == container.row
         out = data.ListInstance([], rowkey, index.DerivedColKey(node))
@@ -572,23 +613,23 @@ def runstep(node, symbols, counter, weight, rowkey):
             return None
 
         if not isinstance(container, data.ListInstance):
-            raise parser.LanguageError("value to the left of 'with' must be a list", node.container.line, node.source)
+            raise parser.QueryError("value to the left of 'with' must be a list", node.container.line, node.source)
 
         assert rowkey == container.row
         out = data.ListInstance([], rowkey, index.DerivedColKey(node))
 
         for x in container.value:
             if not isinstance(x, data.RecordInstance):
-                raise parser.LanguageError("value to the left of 'width' must contain records", node.container.line, node.source)
+                raise parser.QueryError("value to the left of 'width' must contain records", node.container.line, node.source)
 
-            subtable = SymbolTable(symbols)
+            scope = SymbolTable(symbols)
             for n in x.fields():
-                subtable[n] = x[n]
+                scope[n] = x[n]
 
             for subnode in node.body:
-                runstep(subnode, subtable, counter, weight, x.row)
+                runstep(subnode, scope, counter, weight, x.row)
 
-            out.append(data.RecordInstance({n: subtable[n] for n in subtable}, x.row, out.col))
+            out.append(data.RecordInstance({n: scope[n] for n in scope}, x.row, out.col))
 
         return out
 
@@ -616,7 +657,7 @@ def runstep(node, symbols, counter, weight, rowkey):
                     binnings.append(Regular(axis.binning.arguments[0].value, axis.binning.arguments[1].value, axis.binning.arguments[2].value))
 
                 else:
-                    raise parser.LanguageError("histogram binning must match one of these patterns: regular(int, float, float)", node.line, node.source)
+                    raise parser.QueryError("histogram binning must match one of these patterns: regular(int, float, float)", node.line, node.source)
 
             counter[node.name] = Histogram(binnings, line=node.line, source=node.source)
 
@@ -628,12 +669,12 @@ def runstep(node, symbols, counter, weight, rowkey):
             elif component is None:
                 datum.append(None)
             else:
-                raise parser.LanguageError("histograms can only be filled with numbers (not lists of numbers or records)", axis.line, axis.source)
+                raise parser.QueryError("histograms can only be filled with numbers (not lists of numbers or records)", axis.line, axis.source)
 
         if all(x is not None for x in datum):
             counter[node.name].fill(datum, weight)
         elif any(x is not None for x in datum):
-            raise parser.LanguageError("components must all be missing or none be missing", node.line, node.source)
+            raise parser.QueryError("components must all be missing or none be missing", node.line, node.source)
 
     elif isinstance(node, parser.Axis):
         raise NotImplementedError(node)
@@ -658,7 +699,7 @@ def run(source, dataset):
     counter = DirectoryCounter()
     for entry in dataset:
         if not isinstance(entry, data.RecordInstance):
-            raise parser.LanguageError("entries must be records (outermost array structure must be RecordArray)")
+            raise parser.QueryError("entries must be records (outermost array structure must be RecordArray)")
 
         original = SymbolTable(fcns)
         for n in entry.fields():
@@ -687,7 +728,7 @@ def test_dataset():
         })),
         "jets": data.ListArray([0, 5, 6, 8], [5, 6, 8, 12], data.RecordArray({
             "pt": data.PrimitiveArray([1, 2, 3, 4, 5, 100, 30, 50, 1, 2, 3, 4]),
-            "mass": data.PrimitiveArray([10, 10, 10, 10, 10, 5, 15, 15, 9, 8, 7, 6])
+            "mass": data.PrimitiveArray([10, 10, 20, 20, 10, 100, 30, 50, 1, 2, 3, 4]),
         })),
         "met": data.PrimitiveArray([100, 200, 300, 400]),
         "stuff": data.ListArray([0, 0, 1, 3], [0, 1, 3, 6], data.PrimitiveArray([1, 2, 2, 3, 3, 3]))
@@ -883,7 +924,7 @@ joined = muons where iso > 2 with { iso2 = 2*iso } union muons where pt < 5
     output, counter = run(r"""
 joined = muons cross jets
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 1.1, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 2.2, "mass": 10, "iso": 0}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}, {"pt": 3.3, "mass": 10, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 4.4, "mass": 15, "iso": 50}, {"pt": 5.5, "mass": 15, "iso": 30}, {"pt": 5.5, "mass": 15, "iso": 30}]}, {"joined": [{"pt": 6.6, "mass": 9, "iso": 1}, {"pt": 6.6, "mass": 8, "iso": 1}, {"pt": 6.6, "mass": 7, "iso": 1}, {"pt": 6.6, "mass": 6, "iso": 1}, {"pt": 7.7, "mass": 9, "iso": 2}, {"pt": 7.7, "mass": 8, "iso": 2}, {"pt": 7.7, "mass": 7, "iso": 2}, {"pt": 7.7, "mass": 6, "iso": 2}, {"pt": 8.8, "mass": 9, "iso": 3}, {"pt": 8.8, "mass": 8, "iso": 3}, {"pt": 8.8, "mass": 7, "iso": 3}, {"pt": 8.8, "mass": 6, "iso": 3}, {"pt": 9.9, "mass": 9, "iso": 4}, {"pt": 9.9, "mass": 8, "iso": 4}, {"pt": 9.9, "mass": 7, "iso": 4}, {"pt": 9.9, "mass": 6, "iso": 4}]}]
+    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 10}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "mass": 30}, {"pt": 4.4, "iso": 50, "mass": 50}, {"pt": 5.5, "iso": 30, "mass": 30}, {"pt": 5.5, "iso": 30, "mass": 50}]}, {"joined": [{"pt": 6.6, "iso": 1, "mass": 1}, {"pt": 6.6, "iso": 1, "mass": 2}, {"pt": 6.6, "iso": 1, "mass": 3}, {"pt": 6.6, "iso": 1, "mass": 4}, {"pt": 7.7, "iso": 2, "mass": 1}, {"pt": 7.7, "iso": 2, "mass": 2}, {"pt": 7.7, "iso": 2, "mass": 3}, {"pt": 7.7, "iso": 2, "mass": 4}, {"pt": 8.8, "iso": 3, "mass": 1}, {"pt": 8.8, "iso": 3, "mass": 2}, {"pt": 8.8, "iso": 3, "mass": 3}, {"pt": 8.8, "iso": 3, "mass": 4}, {"pt": 9.9, "iso": 4, "mass": 1}, {"pt": 9.9, "iso": 4, "mass": 2}, {"pt": 9.9, "iso": 4, "mass": 3}, {"pt": 9.9, "iso": 4, "mass": 4}]}]
 
     output, counter = run(r"""
 whatever = muons intersect jets
@@ -924,3 +965,18 @@ joined = muons where pt < 7 except muons where iso > 2
 joined = muons where pt < 7 and not iso > 2
 """, test_dataset())
     assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
+
+    output, counter = run(r"""
+grouped = jets group by mass
+""", test_dataset())
+    assert output.tolist() == [{"grouped": [[{"pt": 1, "mass": 10}, {"pt": 2, "mass": 10}, {"pt": 5, "mass": 10}], [{"pt": 3, "mass": 20}, {"pt": 4, "mass": 20}]]}, {"grouped": [[{"pt": 100, "mass": 100}]]}, {"grouped": [[{"pt": 30, "mass": 30}], [{"pt": 50, "mass": 50}]]}, {"grouped": [[{"pt": 1, "mass": 1}], [{"pt": 2, "mass": 2}], [{"pt": 3, "mass": 3}], [{"pt": 4, "mass": 4}]]}]
+
+    output, counter = run(r"""
+grouped = muons as m1 cross muons as m2 group by m1
+""", test_dataset())
+    assert output.tolist() == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}], [{"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
+
+    output, counter = run(r"""
+grouped = muons as m1 cross muons as m2 group by m2
+""", test_dataset())
+    assert output.tolist() == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}], [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
