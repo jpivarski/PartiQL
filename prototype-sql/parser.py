@@ -74,12 +74,14 @@ pow:     call ["**" factor]
 call:    atom     | call trailer
 atom: "(" expression ")"
     | "{" blockitems "}" -> block
+    | "[" exprlist? "]" -> newlist
     | CNAME -> symbol
     | "?" CNAME -> maybesymbol
     | INT -> int
     | FLOAT -> float
     | ESCAPED_STRING -> string
 
+exprlist: expression ("," expression)*
 namelist: CNAME | "(" CNAME ("," CNAME)* ")"
 arglist:  expression ("," expression)*
 trailer:  "(" arglist? ")" -> args
@@ -375,6 +377,9 @@ def parse(source):
         elif node.data == "block":
             return Block(toast(node.children[0], macros, defining), source=source)
 
+        elif node.data == "newlist":
+            return Call(Symbol("[]"), [] if len(node.children) == 0 else toast(node.children[0], macros, defining), source=source)
+
         elif node.data == "histogram":
             weight, named, titled = getattributes(node.children[1:], source, macros, defining)
             return Histogram(toast(node.children[0], macros, defining), weight, named, titled, source=source)
@@ -412,7 +417,7 @@ def parse(source):
             else:
                 return out
 
-        elif node.data in ("start", "statements", "blockitems", "assignments"):
+        elif node.data in ("start", "statements", "blockitems", "exprlist", "assignments"):
             if node.data == "statements":
                 macros = dict(macros)
             out = []
@@ -723,3 +728,22 @@ def f(y) {
 }
 f(x)
 """) == [Histogram([Axis(Symbol("x"), None)], None, None, None)]
+
+def test_benchmark8():
+    """For events with at least three leptons and a same-flavor
+       opposite-sign lepton pair, find the same-flavor opposite-sign
+       lepton pair with the mass closest to 91.2 GeV and plot the pT
+       of the leading other lepton."""
+    assert parse(r"""
+leptons = electrons union muons
+
+cut count(leptons) >= 3 named "three_leptons" {
+    Z = electrons as (lep1, lep2) union muons as (lep1, lep2)
+            where lep1.charge != lep2.charge
+            min by abs(mass(lep1, lep2) - 91.2)
+
+    third = leptons except [Z.lep1, Z.lep2] max by pt
+
+    hist third.pt by regular(100, 0, 250) named "third_pt" titled "Leading other lepton pT"
+}
+""")
