@@ -3,6 +3,7 @@
 __pycache__
 .hypothesis
 .pytest_cache
+.ipynb_checkpoints
 
 ################################################# C++
 
