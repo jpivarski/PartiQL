@@ -193,6 +193,9 @@ class Symbol(Expression):
     def __init__(self, symbol, maybe=False, line=None, source=None):
         super(Symbol, self).__init__(symbol, maybe, line=line, source=source)
 
+    def __repr__(self):
+        return "Symbol({0}{1})".format(repr(self.symbol), ", maybe=True" if self.maybe else "")
+        
     def replace(self, replacements):
         return replacements.get(self.symbol, self)
 
@@ -213,6 +216,9 @@ class Call(Expression):
 
 class GetAttr(Expression):
     fields = ("object", "field", "maybe")
+
+    def __repr__(self):
+        return "GetAttr({0}, {1}{2})".format(repr(self.object), repr(self.field), ", maybe=True" if self.maybe else "")
 
 class Pack(Expression):
     fields = ("container", "names")
