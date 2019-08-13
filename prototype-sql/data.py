@@ -155,7 +155,7 @@ class ValueInstance(Instance):
     name = "Value"
 
     def __repr__(self, indent=""):
-        return indent + "{0}{1}{2}{{ {3} }}".format(self.name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col), repr(self.value))
+        return indent + "{0}{1}{{ {2} }}".format(self.name, "" if self.row is None else str(self.row), repr(self.value))
 
     def tolist(self):
         return self.value
@@ -164,7 +164,7 @@ class ListInstance(Instance):
     name = "List"
 
     def __repr__(self, indent=""):
-        out = [indent, "{0}{1}{2}".format(self.name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
+        out = [indent, "{0}{1}".format(self.name, "" if self.row is None else str(self.row)), "{ \n"]
         for x in self.value:
             out.append(x.__repr__(indent + "    ") + "\n")
         out.append(indent + "}")
@@ -193,7 +193,7 @@ class RecordInstance(Instance):
         return self.value.keys()
 
     def __repr__(self, indent=""):
-        out = [indent, "{0}{1}{2}".format(self.name, "" if self.row is None else str(self.row), "" if self.col is None else str(self.col)), "{ \n"]
+        out = [indent, "{0}{1}".format(self.name, "" if self.row is None else str(self.row)), "{ \n"]
         for n, x in self.value.items():
             out.append(indent + "    " + n + " = " + x.__repr__(indent + "    ").lstrip(" ") + "\n")
         out.append(indent + "}")

@@ -4,6 +4,7 @@ import math
 import itertools
 
 import numpy
+import matplotlib.pyplot
 
 import index
 import data
@@ -159,6 +160,16 @@ class Histogram(Counter):
             return numpy.histogram(numpy.array(self.data), bins=self.binnings[0].num(self.data), range=self.binnings[0].range(self.data), weights=numpy.array(self.weights).reshape(-1, 1))
         else:
             return numpy.histogramdd(numpy.array(self.data), bins=[x.num(self.data) for x in self.binnings], range=[x.range(self.data) for x in self.binnings], weights=None)  # self.weights)
+
+    def mpl(self):
+        if len(self.binnings) == 1:
+            counts, edges = self.numpy()
+            centers = (edges[:-1] + edges[1:])/2.0
+            matplotlib.pyplot.step(centers, counts, where="mid")
+            matplotlib.pyplot.ylim(min(0, 1.1*min(counts)), 1.1*max(counts))
+            matplotlib.pyplot.xlim(centers[0], centers[-1])
+        else:
+            raise NotImplementedError("drawing {0}-dimensional histogram in Matplotlib".format(len(self.binnings)))
 
 ################################################################################ functions
 
