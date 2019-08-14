@@ -759,17 +759,25 @@ def runstep(node, symbols, counter, weight, rowkey):
             if not isinstance(x, data.RecordInstance):
                 raise parser.QueryError("value to the left of 'with' must contain records", node.container.line, node.source)
 
-            scope = SymbolTable(symbols)
-            for n in x.fields():
-                scope[n] = x[n]
+            if isinstance(node.body, list):
+                scope = SymbolTable(symbols)
+                for n in x.fields():
+                    scope[n] = x[n]
 
-            if node.new:
-                scope = SymbolTable(scope)
+                if node.new:
+                    scope = SymbolTable(scope)
 
-            for subnode in node.body:
-                runstep(subnode, scope, counter, weight, x.row)
+                for subnode in node.body:
+                    runstep(subnode, scope, counter, weight, x.row)
 
-            out.append(data.RecordInstance({n: scope[n] for n in scope}, x.row, out.col))
+                out.append(data.RecordInstance({n: scope[n] for n in scope}, x.row, out.col))
+
+            else:
+                scope = SymbolTable(symbols)
+                for n in x.fields():
+                    scope[n] = x[n]
+
+                out.append(runstep(node.body, scope, counter, weight, x.row))
 
         return out
 

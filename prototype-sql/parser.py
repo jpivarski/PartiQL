@@ -53,12 +53,14 @@ groupby:    uniondiff  | groupby "group" "by" scalar
                        | groupby "group" "by" scalar "as" namelist
                        | groupby "group" "by" scalar "as" namelist "with" "{" blockitems "}" -> groupwith
                        | groupby "group" "by" scalar "as" namelist "to" "{" blockitems "}" -> groupto
+                       | groupby "group" "by" scalar "as" namelist "to" scalar -> groupto
 uniondiff:  intercross | uniondiff "union" intercross -> union
                        | uniondiff "except" intercross -> except
 intercross: wherewith  | intercross "join" wherewith -> join
                        | intercross "cross" wherewith -> cross
 wherewith:  pack       | wherewith "with" "{" blockitems "}" -> with
                        | wherewith "to" "{" blockitems "}" -> to
+                       | wherewith "to" scalar -> to
                        | wherewith "where" scalar -> where
 pack:       scalar     | scalar "as" namelist
 
