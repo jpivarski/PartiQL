@@ -68,7 +68,7 @@ comparison: arith | arith "==" arith -> eq | arith "!=" arith -> ne
                   | arith "<" arith -> lt  | arith "<=" arith -> le
                   | arith "in" expression -> in | arith "not" "in" expression -> notin
 arith:   term     | arith "+" term  -> add | arith "-" term -> sub
-term:    factor   | term "*" factor -> mul | term "/" factor -> div
+term:    factor   | term "*" factor -> mul | term "/" factor -> div | term "%" factor -> mod
 factor:  pow      | "+" factor      -> pos | "-" factor -> neg
 pow:     call ["**" factor]
 call:    atom     | call trailer
@@ -257,7 +257,7 @@ class Cut(Named, Statement):
 def parse(source):
     start = parse.parser.parse(source)
 
-    op2fcn = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**",
+    op2fcn = {"add": "+", "sub": "-", "mul": "*", "div": "/", "mod": "%", "pow": "**",
               "pos": "*1", "neg": "*-1",
               "eq": "==", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "in": "in", "notin": "not in",
               "and": "and", "or": "or", "isnot": "not"}
@@ -313,7 +313,7 @@ def parse(source):
         elif node.data == "string":
             return Literal(eval(str(node.children[0])), line=node.children[0].line, source=source)
 
-        elif node.data in ("add", "sub", "mul", "div", "pow", "eq", "ne", "gt", "ge", "lt", "le", "in", "notin", "and", "or") and len(node.children) == 2:
+        elif node.data in ("add", "sub", "mul", "div", "mod", "pow", "eq", "ne", "gt", "ge", "lt", "le", "in", "notin", "and", "or") and len(node.children) == 2:
             return Call(Symbol(op2fcn[node.data]), [toast(node.children[0], macros, defining), toast(node.children[1], macros, defining)], source=source)
 
         elif node.data in ("pos", "neg", "isnot") and len(node.children) == 1:
