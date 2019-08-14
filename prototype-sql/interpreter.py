@@ -245,7 +245,7 @@ fcns["erf"] = NumericalFunction("erf", math.erf)
 fcns["erfc"] = NumericalFunction("erfc", math.erfc)
 fcns["gamma"] = NumericalFunction("gamma", math.gamma)
 fcns["lgamma"] = NumericalFunction("lgamma", math.lgamma)
-
+        
 class EqualityFunction:
     def __init__(self, negated):
         self.negated = negated
@@ -318,8 +318,8 @@ class InclusionFunction(EqualityFunction):
                     return True
             return False
 
-fcns["in"] = InclusionFunction(False)
-fcns["not in"] = InclusionFunction(True)
+fcns[".in"] = InclusionFunction(False)
+fcns[".not in"] = InclusionFunction(True)
 
 class BooleanFunction:
     def __call__(self, node, symbols, counter, weight, rowkey):
@@ -389,9 +389,9 @@ class NotFunction(BooleanFunction):
         else:
             return not first
 
-fcns["and"] = AndFunction()
-fcns["or"] = OrFunction()
-fcns["not"] = NotFunction()
+fcns[".and"] = AndFunction()
+fcns[".or"] = OrFunction()
+fcns[".not"] = NotFunction()
 
 def ifthenelse(node, symbols, counter, weight, rowkey):
     predicate = runstep(node.arguments[0], symbols, counter, weight, rowkey)
@@ -407,7 +407,7 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
     else:
         return runstep(node.arguments[2], symbols, counter, weight, rowkey)
 
-fcns["if"] = ifthenelse
+fcns[".if"] = ifthenelse
 
 class MinMaxFunction:
     def __init__(self, ismin):
@@ -444,8 +444,8 @@ class MinMaxFunction:
 
         return bestobj   # maybe None (if list is empty or all results are unknown)
 
-fcns["min"] = MinMaxFunction(True)
-fcns["max"] = MinMaxFunction(False)
+fcns[".min"] = MinMaxFunction(True)
+fcns[".max"] = MinMaxFunction(False)
 
 def wherefcn(node, symbols, counter, weight, rowkey):
     container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
@@ -475,7 +475,7 @@ def wherefcn(node, symbols, counter, weight, rowkey):
 
     return out
 
-fcns["where"] = wherefcn
+fcns[".where"] = wherefcn
 
 def groupfcn(node, symbols, counter, weight, rowkey):
     container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
@@ -516,7 +516,7 @@ def groupfcn(node, symbols, counter, weight, rowkey):
 
     return out
 
-fcns["group"] = groupfcn
+fcns[".group"] = groupfcn
 
 class SetFunction:
     def __call__(self, node, symbols, counter, weight, rowkey):
@@ -564,7 +564,7 @@ class CrossFunction(SetFunction):
 
                 out.append(obj)
 
-fcns["cross"] = CrossFunction()
+fcns[".cross"] = CrossFunction()
 
 class JoinFunction(SetFunction):
     name = "join"
@@ -583,7 +583,7 @@ class JoinFunction(SetFunction):
 
                 out.append(obj)
 
-fcns["join"] = JoinFunction()
+fcns[".join"] = JoinFunction()
 
 class UnionFunction(SetFunction):
     name = "union"
@@ -605,7 +605,7 @@ class UnionFunction(SetFunction):
                 seen[x.row] = obj
                 out.append(obj)
 
-fcns["union"] = UnionFunction()
+fcns[".union"] = UnionFunction()
 
 class ExceptFunction(SetFunction):
     name = "except"
@@ -617,7 +617,56 @@ class ExceptFunction(SetFunction):
             if x.row not in rights:
                 out.append(x)
 
-fcns["except"] = ExceptFunction()
+fcns[".except"] = ExceptFunction()
+
+class ReducerFunction:
+    def __init__(self, name, typecheck, identity, fcn):
+        self.name, self.typecheck, self.identity, self.fcn = name, typecheck, identity, fcn
+
+    @staticmethod
+    def numerical(x):
+        "numbers"
+        return isinstance(x, data.ValueInstance) and isinstance(x.value, (int, float)) and not isinstance(x.value, bool)
+
+    @staticmethod
+    def boolean(x):
+        "booleans (true or false)"
+        return isinstance(x, data.ValueInstance) and isinstance(x.value, bool)
+
+    def __call__(self, node, symbols, counter, weight, rowkey):
+        if len(node.arguments) != 1:
+            raise parser.QueryError("reducer function {0} takes exactly one argument".format(repr(self.name)), node.line, node.source)
+
+        arg = runstep(node.arguments[0], symbols, counter, weight, rowkey)
+        if arg is None:
+            return None
+
+        if not isinstance(arg, data.ListInstance):
+            raise parser.QueryError("reducer function {0} must be given a list (not a value or record)".format(repr(self.name)), node.arguments[0].line, node.source)
+
+        if self.typecheck is not None:
+            for x in arg.value:
+                if not self.typecheck(x):
+                    raise parser.QueryError("reducer function {0} must be given a list of {1}".format(repr(self.name), self.typecheck.__doc__), node.arguments[0].line, node.source)
+
+        if len(arg.value) == 0 and self.identity is None:
+            return None
+        elif len(arg.value) == 0:
+            return data.ValueInstance(self.identity, rowkey, index.DerivedColKey(node))
+        else:
+            try:
+                result = self.fcn([x.value for x in arg.value])
+            except Exception as err:
+                raise parser.QueryError(str(err), node.line, node.source)
+            else:
+                return data.ValueInstance(result, rowkey, index.DerivedColKey(node))
+
+fcns["count"] = ReducerFunction("count", None, 0, len)
+fcns["sum"] = ReducerFunction("sum", ReducerFunction.numerical, 0, sum)
+fcns["min"] = ReducerFunction("min", ReducerFunction.numerical, None, min)
+fcns["max"] = ReducerFunction("max", ReducerFunction.numerical, None, max)
+fcns["any"] = ReducerFunction("any", ReducerFunction.boolean, False, any)
+fcns["all"] = ReducerFunction("all", ReducerFunction.boolean, True, all)
 
 ################################################################################ run
 
@@ -654,16 +703,26 @@ def runstep(node, symbols, counter, weight, rowkey):
         if obj is None:
             return None
 
-        if not isinstance(obj, data.RecordInstance):
-            raise parser.QueryError("value to the left of '.' (get-attribute) must be a record", node.object.line, node.source)
+        def unwrap(obj):
+            if isinstance(obj, data.ListInstance):
+                out = data.ListInstance([], obj.row, obj.col)
+                for x in obj:
+                    out.append(unwrap(x))
+                return out
 
-        if node.field not in obj:
-            if node.maybe:
-                return None
+            elif isinstance(obj, data.RecordInstance):
+                if node.field not in obj:
+                    if node.maybe:
+                        return None
+                    else:
+                        raise parser.QueryError("attribute {0} is missing in some or all cases (use '?.' instead of '.' to ignore)".format(repr(node.field)), node.object.line, node.source)
+                else:
+                    return obj[node.field]
+
             else:
-                raise parser.QueryError("attribute {0} is missing in some or all cases (use '?.' instead of '.' to ignore)".format(repr(node.field)), node.object.line, node.source)
-        else:
-            return obj[node.field]
+                raise parser.QueryError("value to the left of '.' (get-attribute) must be a record or a list of records", node.object.line, node.source)
+
+        return unwrap(obj)
 
     elif isinstance(node, parser.Pack):
         container = runstep(node.container, symbols, counter, weight, rowkey)
@@ -691,18 +750,21 @@ def runstep(node, symbols, counter, weight, rowkey):
             return None
 
         if not isinstance(container, data.ListInstance):
-            raise parser.QueryError("value to the left of 'with' must be a list", node.container.line, node.source)
+            raise parser.QueryError("value to the left of '{0}' must be a list".format("to" if node.new else "with"), node.container.line, node.source)
 
         assert rowkey == container.row
         out = data.ListInstance([], rowkey, index.DerivedColKey(node))
 
         for x in container.value:
             if not isinstance(x, data.RecordInstance):
-                raise parser.QueryError("value to the left of 'width' must contain records", node.container.line, node.source)
+                raise parser.QueryError("value to the left of 'with' must contain records", node.container.line, node.source)
 
             scope = SymbolTable(symbols)
             for n in x.fields():
                 scope[n] = x[n]
+
+            if node.new:
+                scope = SymbolTable(scope)
 
             for subnode in node.body:
                 runstep(subnode, scope, counter, weight, x.row)
