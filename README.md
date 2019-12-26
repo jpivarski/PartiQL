@@ -1,5 +1,6 @@
-# PartiQL
+# AwkwardQL
 
-Demonstration a SQL-like language for particle physics.
+A SQL-like language for doing set operations on data in Awkward Arrays. 
+This is derived from and inspired by the [demo](https://github.com/jpivarski/PartiQL) by Jim Pivarski (PartiQL) and targets awkward 1.0.
 
-Either read the notebooks in GitHub or [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jpivarski/PartiQL.git/master?urlpath=lab/tree/01-introduction.ipynb)
+We will start out focusing on particle physics uses cases and see how far it goes from there. :-)
