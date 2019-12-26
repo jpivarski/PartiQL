@@ -1,0 +1,66 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - v*.*.*
+  pull_request:
+    branches:
+      - master
+  # Run daily at 0:01 UTC
+  schedule:
+    - cron:  '1 0 * * *'
+
+jobs:
+  linter:
+  
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: [3.7]
+    name: linter - flake8 - python ${{ matrix.python-version }}
+
+    steps:
+    - uses: actions/checkout@master
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Lint with flake8
+      run: |
+        python -m pip install -q flake8
+        flake8 awkwardql
+
+  test:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest] #
+        python-version: [3.6, 3.7]
+    name: test awkwardql (${{ matrix.os }}) - python ${{ matrix.python-version }}
+
+    steps:
+    - uses: actions/checkout@master
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install -q --upgrade pip setuptools setuptools_scm wheel  pytest codecov
+        python -m pip install -q -e .
+        python -m pip list
+    - name: Test with pytest
+      run: |
+        coverage run --source=awkwardql/ setup.py pytest
+#    - name: Install pandoc
+#      if: success() && matrix.os == 'ubuntu-latest' && matrix.python-version == 3.6
+#      uses: r-lib/actions/setup-pandoc@v1
+#    - name: Build documentation
+#      if: success() && matrix.os == 'ubuntu-latest' && matrix.python-version == 3.6
+#      run: |
+#        source docs/build_docs.sh

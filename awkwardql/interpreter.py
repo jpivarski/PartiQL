@@ -6,11 +6,10 @@ import itertools
 import numpy
 import matplotlib.pyplot
 
-import index
-import data
-import parser
+from . import index, data, parser
 
-################################################################################ utils
+# utils
+
 
 class SymbolTable:
     def __init__(self, parent=None):
@@ -26,7 +25,11 @@ class SymbolTable:
         elif self.parent is not None:
             return self.parent[where]
         else:
-            raise parser.QueryError("symbol {0} is missing in some or all cases (prepend with '?' symbol name with to ignore)".format(repr(where)), line, source)
+            raise parser.QueryError("symbol {0} is missing in some or all cases"
+                                    "(prepend with '?' symbol name with to ignore)"
+                                    .format(repr(where)),
+                                    line,
+                                    source)
 
     def __contains__(self, where):
         if where in self.table:
@@ -48,6 +51,7 @@ class SymbolTable:
     def __iter__(self):
         for n in self.table:
             yield n
+
 
 class Counter:
     def __init__(self, line=None, source=None):
@@ -75,6 +79,7 @@ class Counter:
         self.n += 1
         self.sumw += w
         self.sumw2 += w**2
+
 
 class DirectoryCounter(Counter):
     def __init__(self, title=None, line=None, source=None):
@@ -112,17 +117,21 @@ class DirectoryCounter(Counter):
     def __setitem__(self, where, what):
         self.table[where] = what
 
-class Binning: pass
+
+class Binning:
+    pass
+
 
 class Unspecified(Binning):
     def __repr__(self):
         return "Unspecified()"
 
     def num(self, data):
-        return max(10, 2*len(data)**(3**-1))
+        return max(10, 2 * len(data)**(3**-1))
 
     def range(self, data):
         return None
+
 
 class Regular(Binning):
     def __init__(self, numbins, low, high):
@@ -136,6 +145,7 @@ class Regular(Binning):
 
     def range(self, data):
         return (self.low, self.high)
+
 
 class Histogram(Counter):
     def __init__(self, binnings, title, line=None, source=None):
@@ -157,26 +167,35 @@ class Histogram(Counter):
 
     def numpy(self):
         if len(self.binnings) == 1:
-            return numpy.histogram(numpy.array(self.data), bins=self.binnings[0].num(self.data), range=self.binnings[0].range(self.data), weights=numpy.array(self.weights).reshape(-1, 1))
+            return numpy.histogram(numpy.array(self.data),
+                                   bins=self.binnings[0].num(self.data),
+                                   range=self.binnings[0].range(self.data),
+                                   weights=numpy.array(self.weights).reshape(-1, 1))
         else:
-            return numpy.histogramdd(numpy.array(self.data), bins=[x.num(self.data) for x in self.binnings], range=[x.range(self.data) for x in self.binnings], weights=None)  # self.weights)
+            return numpy.histogramdd(numpy.array(self.data),
+                                     bins=[x.num(self.data) for x in self.binnings],
+                                     range=[x.range(self.data) for x in self.binnings],
+                                     weights=None)  # self.weights)
 
     def mpl(self):
         if len(self.binnings) == 1:
             counts, edges = self.numpy()
-            centers = (edges[:-1] + edges[1:])/2.0
+            centers = (edges[:-1] + edges[1:]) / 2.0
             matplotlib.pyplot.step(centers, counts, where="mid")
-            matplotlib.pyplot.ylim(min(0, 1.1*min(counts)), 1.1*max(counts))
+            matplotlib.pyplot.ylim(min(0, 1.1 * min(counts)), 1.1 * max(counts))
             matplotlib.pyplot.xlim(centers[0], centers[-1])
         else:
-            raise NotImplementedError("drawing {0}-dimensional histogram in Matplotlib".format(len(self.binnings)))
+            raise NotImplementedError("drawing {0}-dimensional histogram in"
+                                      "Matplotlib".format(len(self.binnings)))
 
-################################################################################ functions
+# functions
+
 
 fcns = SymbolTable()
 
 fcns["pi"] = data.ValueInstance(math.pi, None, index.DerivedColKey(parser.Literal(math.pi)))
 fcns["e"] = data.ValueInstance(math.e, None, index.DerivedColKey(parser.Literal(math.e)))
+
 
 class NumericalFunction:
     def __init__(self, name, fcn):
@@ -196,6 +215,7 @@ class NumericalFunction:
             raise parser.QueryError(str(err), node.line, node.source)
 
         return data.ValueInstance(result, rowkey, index.DerivedColKey(node))
+
 
 fcns["+"] = NumericalFunction("addition", lambda x, y: x + y)
 fcns["-"] = NumericalFunction("subtraction", lambda x, y: x - y)
@@ -245,7 +265,8 @@ fcns["erf"] = NumericalFunction("erf", math.erf)
 fcns["erfc"] = NumericalFunction("erfc", math.erfc)
 fcns["gamma"] = NumericalFunction("gamma", math.gamma)
 fcns["lgamma"] = NumericalFunction("lgamma", math.lgamma)
-        
+
+
 class EqualityFunction:
     def __init__(self, negated):
         self.negated = negated
@@ -300,8 +321,10 @@ class EqualityFunction:
         assert isinstance(args[0], data.Instance) and isinstance(args[1], data.Instance)
         return data.ValueInstance(self.evaluate(node, args[0], args[1]), rowkey, index.DerivedColKey(node))
 
+
 fcns["=="] = EqualityFunction(False)
 fcns["!="] = EqualityFunction(True)
+
 
 class InclusionFunction(EqualityFunction):
     def evaluate(self, node, left, right):
@@ -318,8 +341,10 @@ class InclusionFunction(EqualityFunction):
                     return True
             return False
 
+
 fcns[".in"] = InclusionFunction(False)
 fcns[".not in"] = InclusionFunction(True)
+
 
 class BooleanFunction:
     def __call__(self, node, symbols, counter, weight, rowkey):
@@ -341,6 +366,7 @@ class BooleanFunction:
 # Three-valued logic
 # https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics
 
+
 class AndFunction(BooleanFunction):
     @property
     def name(self):
@@ -358,6 +384,7 @@ class AndFunction(BooleanFunction):
                 return None
         elif first is True:
             return next(iterate)
+
 
 class OrFunction(BooleanFunction):
     @property
@@ -377,6 +404,7 @@ class OrFunction(BooleanFunction):
         elif first is True:
             return True
 
+
 class NotFunction(BooleanFunction):
     @property
     def name(self):
@@ -389,9 +417,11 @@ class NotFunction(BooleanFunction):
         else:
             return not first
 
+
 fcns[".and"] = AndFunction()
 fcns[".or"] = OrFunction()
 fcns[".not"] = NotFunction()
+
 
 def ifthenelse(node, symbols, counter, weight, rowkey):
     predicate = runstep(node.arguments[0], symbols, counter, weight, rowkey)
@@ -407,7 +437,9 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
     else:
         return runstep(node.arguments[2], symbols, counter, weight, rowkey)
 
+
 fcns[".if"] = ifthenelse
+
 
 class MinMaxFunction:
     def __init__(self, ismin):
@@ -419,14 +451,20 @@ class MinMaxFunction:
             return None
 
         if not isinstance(container, data.ListInstance):
-            raise parser.QueryError("left of '{0}' must be a list".format("min by" if self.ismin else "max by"), node.arguments[0].line, node.arguments[0].source)
+            raise parser.QueryError("left of '{0}' must be a list"
+                                    .format("min by" if self.ismin else "max by"),
+                                    node.arguments[0].line,
+                                    node.arguments[0].source)
 
         assert rowkey == container.row
         bestval, bestobj = None, None
 
         for x in container.value:
             if not isinstance(x, data.RecordInstance):
-                raise parser.QueryError("left of '{0}' must contain records".format("min by" if self.ismin else "max by"), node.arguments[0].line, node.arguments[0].source)
+                raise parser.QueryError("left of '{0}' must contain records"
+                                        .format("min by" if self.ismin else "max by"),
+                                        node.arguments[0].line,
+                                        node.arguments[0].source)
 
             scope = SymbolTable(symbols)
             for n in x.fields():
@@ -437,15 +475,20 @@ class MinMaxFunction:
                 if isinstance(result, data.ValueInstance) and isinstance(result.value, (int, float)):
                     result = result.value
                 else:
-                    raise parser.QueryError("right of '{0}' must resolve to a number".format("min by" if self.ismin else "max by"), node.arguments[1].line, node.arguments[1].source)
+                    raise parser.QueryError("right of '{0}' must resolve to a number"
+                                            .format("min by" if self.ismin else "max by"),
+                                            node.arguments[1].line,
+                                            node.arguments[1].source)
                 if bestval is None or (self.ismin and result < bestval) or (not self.ismin and result > bestval):
                     bestval = result
                     bestobj = x
 
         return bestobj   # maybe None (if list is empty or all results are unknown)
 
+
 fcns[".min"] = MinMaxFunction(True)
 fcns[".max"] = MinMaxFunction(False)
+
 
 def wherefcn(node, symbols, counter, weight, rowkey):
     container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
@@ -475,7 +518,9 @@ def wherefcn(node, symbols, counter, weight, rowkey):
 
     return out
 
+
 fcns[".where"] = wherefcn
+
 
 def groupfcn(node, symbols, counter, weight, rowkey):
     container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
@@ -516,7 +561,9 @@ def groupfcn(node, symbols, counter, weight, rowkey):
 
     return out
 
+
 fcns[".group"] = groupfcn
+
 
 class SetFunction:
     def __call__(self, node, symbols, counter, weight, rowkey):
@@ -525,32 +572,49 @@ class SetFunction:
             return None
 
         if not isinstance(left, data.ListInstance):
-            raise parser.QueryError("left and right of '{0}' must be lists".format(self.name), node.arguments[0].line, node.arguments[0].source)
+            raise parser.QueryError("left and right of '{0}' must be lists"
+                                    .format(self.name),
+                                    node.arguments[0].line,
+                                    node.arguments[0].source)
         if not isinstance(right, data.ListInstance):
-            raise parser.QueryError("left and right of '{0}' must be lists".format(self.name), node.arguments[1].line, node.arguments[1].source)
+            raise parser.QueryError("left and right of '{0}' must be lists"
+                                    .format(self.name),
+                                    node.arguments[1].line,
+                                    node.arguments[1].source)
 
         assert rowkey == left.row and rowkey == right.row
 
         if not all(isinstance(x, data.RecordInstance) for x in left.value):
-            raise parser.QueryError("left and right of '{0}' must contain records".format(self.name), node.arguments[0].line, node.arguments[0].source)
+            raise parser.QueryError("left and right of '{0}' must contain records"
+                                    .format(self.name),
+                                    node.arguments[0].line,
+                                    node.arguments[0].source)
         if not all(isinstance(x, data.RecordInstance) for x in right.value):
-            raise parser.QueryError("left and right of '{0}' must contain records".format(self.name), node.arguments[1].line, node.arguments[1].source)
+            raise parser.QueryError("left and right of '{0}' must contain records"
+                                    .format(self.name),
+                                    node.arguments[1].line,
+                                    node.arguments[1].source)
 
         out = data.ListInstance([], rowkey, index.DerivedColKey(node))
-        self.fill(rowkey, left, right, out)
+        self.fill(rowkey, left, right, out, node)
         return out
+
 
 class CrossFunction(SetFunction):
     name = "cross"
 
-    def fill(self, rowkey, left, right, out):
+    def fill(self, rowkey, left, right, out, node):
         i = 0
         for x in left.value:
             for y in right.value:
                 if not isinstance(x, data.RecordInstance):
-                    raise parser.QueryError("left and right of 'cross' must contain records", node.arguments[0].line, node.arguments[0].source)
+                    raise parser.QueryError("left and right of 'cross' must contain records",
+                                            node.arguments[0].line,
+                                            node.arguments[0].source)
                 if not isinstance(y, data.RecordInstance):
-                    raise parser.QueryError("left and right of 'cross' must contain records", node.arguments[1].line, node.arguments[1].source)
+                    raise parser.QueryError("left and right of 'cross' must contain records",
+                                            node.arguments[1].line,
+                                            node.arguments[1].source)
 
                 row = index.RowKey(rowkey.index + (i,), index.CrossRef(x.row.ref, y.row.ref))
                 i += 1
@@ -564,12 +628,14 @@ class CrossFunction(SetFunction):
 
                 out.append(obj)
 
+
 fcns[".cross"] = CrossFunction()
+
 
 class JoinFunction(SetFunction):
     name = "join"
 
-    def fill(self, rowkey, left, right, out):
+    def fill(self, rowkey, left, right, out, node):
         rights = {x.row: x for x in right.value}
 
         for x in left.value:
@@ -583,12 +649,14 @@ class JoinFunction(SetFunction):
 
                 out.append(obj)
 
+
 fcns[".join"] = JoinFunction()
+
 
 class UnionFunction(SetFunction):
     name = "union"
 
-    def fill(self, rowkey, left, right, out):
+    def fill(self, rowkey, left, right, out, node):
         seen = {}
 
         for x in left.value + right.value:
@@ -605,19 +673,23 @@ class UnionFunction(SetFunction):
                 seen[x.row] = obj
                 out.append(obj)
 
+
 fcns[".union"] = UnionFunction()
+
 
 class ExceptFunction(SetFunction):
     name = "except"
 
-    def fill(self, rowkey, left, right, out):
+    def fill(self, rowkey, left, right, out, node):
         rights = {x.row for x in right.value}
 
         for x in left.value:
             if x.row not in rights:
                 out.append(x)
 
+
 fcns[".except"] = ExceptFunction()
+
 
 class ReducerFunction:
     def __init__(self, name, typecheck, identity, fcn):
@@ -642,12 +714,17 @@ class ReducerFunction:
             return None
 
         if not isinstance(arg, data.ListInstance):
-            raise parser.QueryError("reducer function {0} must be given a list (not a value or record)".format(repr(self.name)), node.arguments[0].line, node.source)
+            raise parser.QueryError("reducer function {0} must be given a list (not a value or record)"
+                                    .format(repr(self.name)),
+                                    node.arguments[0].line,
+                                    node.source)
 
         if self.typecheck is not None:
             for x in arg.value:
                 if not self.typecheck(x):
-                    raise parser.QueryError("reducer function {0} must be given a list of {1}".format(repr(self.name), self.typecheck.__doc__), node.arguments[0].line, node.source)
+                    raise parser.QueryError("reducer function {0} must be given a list of {1}"
+                                            .format(repr(self.name), self.typecheck.__doc__),
+                                            node.arguments[0].line, node.source)
 
         if len(arg.value) == 0 and self.identity is None:
             return None
@@ -661,6 +738,7 @@ class ReducerFunction:
             else:
                 return data.ValueInstance(result, rowkey, index.DerivedColKey(node))
 
+
 fcns["count"] = ReducerFunction("count", None, 0, len)
 fcns["sum"] = ReducerFunction("sum", ReducerFunction.numerical, 0, sum)
 fcns["min"] = ReducerFunction("min", ReducerFunction.numerical, None, min)
@@ -668,7 +746,8 @@ fcns["max"] = ReducerFunction("max", ReducerFunction.numerical, None, max)
 fcns["any"] = ReducerFunction("any", ReducerFunction.boolean, False, any)
 fcns["all"] = ReducerFunction("all", ReducerFunction.boolean, True, all)
 
-################################################################################ run
+# run
+
 
 def runstep(node, symbols, counter, weight, rowkey):
     if isinstance(node, parser.Literal):
@@ -715,7 +794,10 @@ def runstep(node, symbols, counter, weight, rowkey):
                     if node.maybe:
                         return None
                     else:
-                        raise parser.QueryError("attribute {0} is missing in some or all cases (use '?.' instead of '.' to ignore)".format(repr(node.field)), node.object.line, node.source)
+                        raise parser.QueryError("attribute {0} is missing in some or all"                      "cases (use '?.' instead of '.' to ignore)"
+                                                .format(repr(node.field)),
+                                                node.object.line,
+                                                node.source)
                 else:
                     return obj[node.field]
 
@@ -901,6 +983,7 @@ def runstep(node, symbols, counter, weight, rowkey):
     else:
         assert False, repr(type(node), node)
 
+
 def run(source, dataset):
     if not isinstance(source, parser.AST):
         source = parser.parse(source)
@@ -927,408 +1010,3 @@ def run(source, dataset):
             output.append(out)
 
     return output, counter
-
-################################################################################ tests
-
-def test_dataset():
-    events = data.RecordArray({
-        "muons": data.ListArray([0, 3, 3, 5], [3, 3, 5, 9], data.RecordArray({
-            "pt": data.PrimitiveArray([1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]),
-            "iso": data.PrimitiveArray([0, 0, 100, 50, 30, 1, 2, 3, 4])
-        })),
-        "jets": data.ListArray([0, 5, 6, 8], [5, 6, 8, 12], data.RecordArray({
-            "pt": data.PrimitiveArray([1, 2, 3, 4, 5, 100, 30, 50, 1, 2, 3, 4]),
-            "mass": data.PrimitiveArray([10, 10, 20, 20, 10, 100, 30, 50, 1, 2, 3, 4]),
-        })),
-        "met": data.PrimitiveArray([100, 200, 300, 400]),
-        "stuff": data.ListArray([0, 0, 1, 3], [0, 1, 3, 6], data.PrimitiveArray([1, 2, 2, 3, 3, 3]))
-    })
-    events.setindex()
-    return data.instantiate(events)
-
-def test_assign():
-    output, counter = run(r"""
-x = met
-""", test_dataset())
-    assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
-
-    output, counter = run(r"""
-x = -met
-""", test_dataset())
-    assert output.tolist() == [{"x": -100}, {"x": -200}, {"x": -300}, {"x": -400}]
-
-    output, counter = run(r"""
-x = +met
-""", test_dataset())
-    assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
-
-def test_scalar():
-    output, counter = run(r"""
-x = met + 1
-""", test_dataset())
-    assert output.tolist() == [{"x": 101}, {"x": 201}, {"x": 301}, {"x": 401}]
-
-    output, counter = run(r"""
-x = met + 1 + met
-""", test_dataset())
-    assert output.tolist() == [{"x": 201}, {"x": 401}, {"x": 601}, {"x": 801}]
-
-    output, counter = run(r"""
-x = (met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = (muons == muons)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = (met != met)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
-
-    output, counter = run(r"""
-x = (muons != muons)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
-
-    output, counter = run(r"""
-x = (stuff == stuff)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = (stuff != stuff)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
-
-    output, counter = run(r"""
-x = 1 in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": True}, {"x": False}, {"x": False}]
-
-    output, counter = run(r"""
-x = 2 in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": True}, {"x": False}]
-
-    output, counter = run(r"""
-x = 1 not in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": False}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = 2 not in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": False}, {"x": True}]
-
-    output, counter = run(r"""
-x = (met == met and met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = (met == met and met != met)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
-
-    output, counter = run(r"""
-x = (met == met or met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = (met != met or met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = (not met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
-
-    output, counter = run(r"""
-x = (not met != met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
-
-    output, counter = run(r"""
-x = (if 1 in stuff then 1 else -1)
-""", test_dataset())
-    assert output.tolist() == [{"x": -1}, {"x": 1}, {"x": -1}, {"x": -1}]
-
-    output, counter = run(r"""
-x = (if 2 in stuff then "a" else "b")
-""", test_dataset())
-    assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
-
-    output, counter = run(r"""
-x = {3}
-""", test_dataset())
-    assert output.tolist() == [{"x": 3}, {"x": 3}, {"x": 3}, {"x": 3}]
-
-    output, counter = run(r"""
-x = { y = 4; y + 2 }
-""", test_dataset())
-    assert output.tolist() == [{"x": 6}, {"x": 6}, {"x": 6}, {"x": 6}]
-
-    output, counter = run(r"""
-y = 10
-x = { y = 4; y + 2 }
-""", test_dataset())
-    assert output.tolist() == [{"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}]
-
-def test_tabular():
-    output, counter = run(r"""
-nested = muons as mu
-""", test_dataset())
-    assert output.tolist() == [{"nested": [{"mu": {"pt": 1.1, "iso": 0}}, {"mu": {"pt": 2.2, "iso": 0}}, {"mu": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"mu": {"pt": 4.4, "iso": 50}}, {"mu": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"mu": {"pt": 6.6, "iso": 1}}, {"mu": {"pt": 7.7, "iso": 2}}, {"mu": {"pt": 8.8, "iso": 3}}, {"mu": {"pt": 9.9, "iso": 4}}]}]
-
-    output, counter = run(r"""
-nested = muons as (m1, m2)
-""", test_dataset())
-
-    assert output.tolist() == [{"nested": [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}]}]
-
-    output, counter = run(r"""
-nested = stuff
-""", test_dataset())
-    assert output.tolist() == [{"nested": []}, {"nested": [1]}, {"nested": [2, 2]}, {"nested": [3, 3, 3]}]
-
-    output, counter = run(r"""
-nested = stuff as x
-""", test_dataset())
-    assert output.tolist() == [{"nested": []}, {"nested": [{"x": 1}]}, {"nested": [{"x": 2}, {"x": 2}]}, {"nested": [{"x": 3}, {"x": 3}, {"x": 3}]}]
-
-    output, counter = run(r"""
-joined = muons with { iso2 = 2*iso }
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0}, {"pt": 2.2, "iso": 0, "iso2": 0}, {"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2}, {"pt": 7.7, "iso": 2, "iso2": 4}, {"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
-
-    output, counter = run(r"""
-joined = muons with { iso2 = 2*iso; iso10 = 10*iso }
-""", test_dataset())
-    output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 2.2, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 3.3, "iso": 100, "iso2": 200, "iso10": 1000}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100, "iso10": 500}, {"pt": 5.5, "iso": 30, "iso2": 60, "iso10": 300}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2, "iso10": 10}, {"pt": 7.7, "iso": 2, "iso2": 4, "iso10": 20}, {"pt": 8.8, "iso": 3, "iso2": 6, "iso10": 30}, {"pt": 9.9, "iso": 4, "iso2": 8, "iso10": 40}]}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 union muons
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 union muons where pt < 5
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
-
-    output, counter = run(r"""
-joined = muons where pt < 5 union muons where iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
-
-    output, counter = run(r"""
-joined = muons where pt < 5 or iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 with { iso2 = 2*iso } union muons
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 with { iso2 = 2*iso } union muons where pt < 5
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
-
-    output, counter = run(r"""
-joined = muons cross jets
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 10}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "mass": 30}, {"pt": 4.4, "iso": 50, "mass": 50}, {"pt": 5.5, "iso": 30, "mass": 30}, {"pt": 5.5, "iso": 30, "mass": 50}]}, {"joined": [{"pt": 6.6, "iso": 1, "mass": 1}, {"pt": 6.6, "iso": 1, "mass": 2}, {"pt": 6.6, "iso": 1, "mass": 3}, {"pt": 6.6, "iso": 1, "mass": 4}, {"pt": 7.7, "iso": 2, "mass": 1}, {"pt": 7.7, "iso": 2, "mass": 2}, {"pt": 7.7, "iso": 2, "mass": 3}, {"pt": 7.7, "iso": 2, "mass": 4}, {"pt": 8.8, "iso": 3, "mass": 1}, {"pt": 8.8, "iso": 3, "mass": 2}, {"pt": 8.8, "iso": 3, "mass": 3}, {"pt": 8.8, "iso": 3, "mass": 4}, {"pt": 9.9, "iso": 4, "mass": 1}, {"pt": 9.9, "iso": 4, "mass": 2}, {"pt": 9.9, "iso": 4, "mass": 3}, {"pt": 9.9, "iso": 4, "mass": 4}]}]
-
-    output, counter = run(r"""
-whatever = muons join jets
-""", test_dataset())
-    assert output.tolist() == [{"whatever": []}, {"whatever": []}, {"whatever": []}, {"whatever": []}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 with { iso2 = 2*iso }
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 with { iso2 = 2*iso } join muons
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 join muons where pt < 5
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
-
-    output, counter = run(r"""
-joined = muons where pt < 5 join muons where iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
-
-    output, counter = run(r"""
-joined = muons where pt < 5 and iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
-
-    output, counter = run(r"""
-joined = muons where pt < 7 except muons where iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
-
-    output, counter = run(r"""
-joined = muons where pt < 7 and not iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
-
-    output, counter = run(r"""
-grouped = jets group by mass
-""", test_dataset())
-    assert output.tolist() == [{"grouped": [[{"pt": 1, "mass": 10}, {"pt": 2, "mass": 10}, {"pt": 5, "mass": 10}], [{"pt": 3, "mass": 20}, {"pt": 4, "mass": 20}]]}, {"grouped": [[{"pt": 100, "mass": 100}]]}, {"grouped": [[{"pt": 30, "mass": 30}], [{"pt": 50, "mass": 50}]]}, {"grouped": [[{"pt": 1, "mass": 1}], [{"pt": 2, "mass": 2}], [{"pt": 3, "mass": 3}], [{"pt": 4, "mass": 4}]]}]
-
-    output, counter = run(r"""
-grouped = muons as m1 cross muons as m2 group by m1
-""", test_dataset())
-    assert output.tolist() == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}], [{"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
-
-    output, counter = run(r"""
-grouped = muons as m1 cross muons as m2 group by m2
-""", test_dataset())
-    assert output.tolist() == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}], [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
-
-    output, counter = run(r"""
-x = 3
-extreme = muons max by pt
-""", test_dataset())
-    assert output.tolist() == [{"x": 3, "extreme": {"pt": 3.3, "iso": 100}}, {"x": 3}, {"x": 3, "extreme": {"pt": 5.5, "iso": 30}}, {"x": 3, "extreme": {"pt": 9.9, "iso": 4}}]
-
-    output, counter = run(r"""
-x = 3
-extreme = muons min by pt
-""", test_dataset())
-    assert output.tolist() == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}}]
-
-    output, counter = run(r"""
-extreme = muons min by pt
-whatever = has extreme
-""", test_dataset())
-    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": True}, {"whatever": False}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": True}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": True}]
-
-    output, counter = run(r"""
-extreme = muons min by pt
-whatever = if has extreme then extreme.iso else -100
-""", test_dataset())
-    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"whatever": -100}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
-
-    output, counter = run(r"""
-x = 3
-extreme = muons min by pt
-whatever = if has extreme then extreme.iso
-""", test_dataset())
-    assert output.tolist() == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
-
-    output, counter = run(r"""
-extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
-whatever = if has extreme then extreme?.iso2
-""", test_dataset())
-    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
-
-    output, counter = run(r"""
-extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
-whatever = ?extreme?.iso2
-""", test_dataset())
-    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
-
-def test_hist():
-    output, counter = run(r"""
-hist met
-""", test_dataset())
-    assert output.tolist() == []
-    assert (counter.entries, counter.value, counter.error) == (4, 4.0, 2.0)
-    assert counter.keys() == ["0"]
-    counts, edges = counter["0"].numpy()
-    assert counts.tolist() == [1, 0, 0, 1, 0, 0, 1, 0, 0, 1]
-    assert edges.tolist() == [100, 130, 160, 190, 220, 250, 280, 310, 340, 370, 400]
-
-    output, counter = run(r"""
-hist met by regular(10, 0, 1000)
-""", test_dataset())
-    counts, edges = counter["0"].numpy()
-    assert counts.tolist() == [0, 1, 1, 1, 1, 0, 0, 0, 0, 0]
-    assert edges.tolist() == [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-
-    output, counter = run(r"""
-hist met by regular(10, 0, 1000), met - 1 by regular(5, 0, 500)
-""", test_dataset())
-    counts, (xedges, yedges) = counter["0"].numpy()
-    assert counts.tolist() == [[0.0, 0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]]
-    assert xedges.tolist() == [0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0]
-    assert yedges.tolist() == [0.0, 100.0, 200.0, 300.0, 400.0, 500.0]
-
-    output, counter = run(r"""
-hist met by regular(10, 0, 1000) weight by 2
-""", test_dataset())
-    counts, edges = counter["0"].numpy()
-    assert counts.tolist() == [0, 2, 2, 2, 2, 0, 0, 0, 0, 0]
-    assert edges.tolist() == [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-
-    output, counter = run(r"""
-hist met by regular(10, 0, 1000) named "one" titled "two"
-""", test_dataset())
-    assert counter["one"].title == "two"
-
-def test_cutvary():
-    output, counter = run(r"""
-vary by { x = 1 } by { x = 2 } by { x = 3 } {
-    hist x by regular(5, 0, 5)
-}
-""", test_dataset())
-    assert counter.allkeys() == ["0", "0/0", "1", "1/0", "2", "2/0"]
-    assert counter["0/0"].numpy()[0].tolist() == [0, 4, 0, 0, 0]
-    assert counter["1/0"].numpy()[0].tolist() == [0, 0, 4, 0, 0]
-    assert counter["2/0"].numpy()[0].tolist() == [0, 0, 0, 4, 0]
-
-    output, counter = run(r"""
-vary by { x = 1 } named "one" by { x = 2 } named "two" by { x = 3 } named "three" {
-    hist x by regular(5, 0, 5)
-}
-""", test_dataset())
-    assert counter.allkeys() == ["one", "one/0", "two", "two/0", "three", "three/0"]
-    assert counter["one/0"].numpy()[0].tolist() == [0, 4, 0, 0, 0]
-    assert counter["two/0"].numpy()[0].tolist() == [0, 0, 4, 0, 0]
-    assert counter["three/0"].numpy()[0].tolist() == [0, 0, 0, 4, 0]
-
-    output, counter = run(r"""
-cut met > 200 {
-    hist met by regular(5, 0, 500)
-}
-""", test_dataset())
-    assert counter.allkeys() == ["0", "0/0"]
-    assert counter["0/0"].numpy()[0].tolist() == [0, 0, 0, 1, 1]
-
-    output, counter = run(r"""
-cut met > 200 weight by 2 {
-    hist met by regular(5, 0, 500)
-}
-""", test_dataset())
-    assert counter.allkeys() == ["0", "0/0"]
-    assert counter["0/0"].numpy()[0].tolist() == [0, 0, 0, 2, 2]
-
-    output, counter = run(r"""
-cut met > 200 named "one" titled "two" {
-    hist met by regular(5, 0, 500)
-}
-""", test_dataset())
-    assert counter.allkeys() == ["one", "one/0"]
-    assert counter["one/0"].numpy()[0].tolist() == [0, 0, 0, 1, 1]
-    assert counter["one"].title == "two"
