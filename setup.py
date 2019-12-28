@@ -59,6 +59,7 @@ INSTALL_REQUIRES = ['lark-parser>=0.7.8',
                     'awkward1>=0.1.36',
                     'numba>=0.43.1',
                     'numpy>=1.16.0',
+                    'matplotlib',
                     ]
 EXTRAS_REQUIRE = {}
 
