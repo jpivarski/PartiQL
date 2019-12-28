@@ -2,6 +2,7 @@
 
 import functools
 
+
 class Ref:
     @staticmethod
     def new():
@@ -29,6 +30,7 @@ class Ref:
     def __hash__(self):
         return hash((Ref, self.num))
 
+
 class CrossRef(Ref):
     @staticmethod
     def fromtuple(tup):
@@ -55,8 +57,12 @@ class CrossRef(Ref):
     def __hash__(self):
         return hash((CrossRef, self.left, self.right))
 
+
 class RowIndex:
-    "RowIndex is array-like, with each entry specifying the sequence of integer indexes as a path from root to tree-node. Referential identity is important, as it determines which arrays are compatible in ufunc-like operations."
+    """RowIndex is array-like, with each entry specifying the sequence of integer
+       indexes as a path from root to tree-node. Referential identity is important,
+       as it determines which arrays are compatible in ufunc-like operations.
+    """
 
     def __init__(self, array, ref=None):
         "In this prototype, 'array' is a list of equal-length tuples."
@@ -99,8 +105,13 @@ class RowIndex:
         else:
             raise NotImplementedError(where)
 
+
 class ColIndex:
-    "ColIndex is AST-like, specifying the sequence of string indexes as a path from root to tree-node or join operations performed to build the object. Referential identity is not important; ColIndexes should be compared by value."
+    """ColIndex is AST-like, specifying the sequence of string indexes as a path
+       from root to tree-node or join operations performed to build the object.
+       Referential identity is not important; ColIndexes should be compared by
+       value.
+    """
 
     def __init__(self, *path):
         "In this prototype, 'path' is a tuple of strings."
@@ -141,6 +152,7 @@ class ColIndex:
     def withattr(self, attr):
         return ColIndex(*(self.path + (attr,)))
 
+
 @functools.total_ordering
 class RowKey:
     "RowKey is an element of a RowIndex, representing a unique row by reference."
@@ -170,6 +182,7 @@ class RowKey:
             raise TypeError("inequalities not supported between RowKeys with different references: {0} and {1}".format(str(self.ref), str(other.ref)))
         return self.index < other.index
 
+
 class ColKey:
     "ColKey is an element of a ColIndex, representing a unique column by value."
 
@@ -191,6 +204,7 @@ class ColKey:
     def __hash__(self):
         return hash((ColKey, self.index))
 
+
 class DerivedColKey(ColKey):
     def __init__(self, node):
         self.node = node
@@ -205,4 +219,4 @@ class DerivedColKey(ColKey):
         return type(self) is type(other) and self.node == other.node
 
     def __hash__(self):
-        return hash((DerivedKey, self.node))
+        return hash((DerivedColKey, self.node))
