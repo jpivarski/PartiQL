@@ -7,7 +7,7 @@ A SQL-like language for doing set operations on data in Awkward Arrays.
 
 .. inclusion-marker-1-5-do-not-remove
 
-This is derived from and inspired by the demo by Jim Pivarski (PartiQL) and targets awkward 1.0.
+This is derived from and inspired by the `demo <https://github.com/jpivarski/PartiQL>`_ by Jim Pivarski (PartiQL) and targets awkward 1.0.
 
 We will start out focusing on particle physics uses cases and see how far it goes from there. :-)
 
@@ -33,6 +33,9 @@ The following are installed automatically when you install coffea with pip:
 
 - `awkward1 <https://github.com/scikit-hep/awkward-array>`__ to manipulate complex-structured columnar data, such as jagged arrays;
 - `numba <https://numba.pydata.org/>`__ just-in-time compilation of python functions;
+- `lark <https://lark-parser.readthedocs.io/en/latest/>`__ a modern and well featured parser/lexer/interpreter engine;
+- `numpy <https://scipy.org/install.html>`__ for flat array manipulation;
+- `matplotlib <https://matplotlib.org/>`__ as a plotting backend;
 
 .. inclusion-marker-3-do-not-remove
 
