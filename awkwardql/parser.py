@@ -382,9 +382,9 @@ def parse(source):
             args = [toast(x, macros, defining) for x in node.children[1].children[0].children] if len(node.children[1].children) != 0 else []
 
             if node.children[1].data == "args":
-                if (len(node.children[0].children) == 1 and
-                    node.children[0].children[0].data == "symbol" and
-                    str(node.children[0].children[0].children[0]) in macros):
+                if(len(node.children[0].children) == 1 and
+                   node.children[0].children[0].data == "symbol" and
+                   str(node.children[0].children[0].children[0]) in macros):
                     name = str(node.children[0].children[0].children[0])
                     params, body = macros[name]
                     if len(params) != len(args):
