@@ -363,6 +363,15 @@ class BooleanFunction:
         else:
             return data.ValueInstance(result, rowkey, index.DerivedColKey(node))
 
+
+class NewListFunction:
+    def __call__(self, node, symbols, counter, weight, rowkey):
+        out = list(filter(None, [runstep(arg, symbols, counter, weight, rowkey) for arg in node.arguments]))
+        return data.ListInstance(out, rowkey, index.DerivedColKey(node))
+
+
+fcns['newlist'] = NewListFunction()
+
 # Three-valued logic
 # https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics
 

@@ -469,7 +469,7 @@ def parse(source):
             return Block(toast(node.children[0], macros, defining), source=source)
 
         elif node.data == "newlist":
-            return Call(Symbol("[]"), [] if len(node.children) == 0 else toast(node.children[0], macros, defining), source=source)
+            return Call(Symbol("newlist"), list() if len(node.children) == 0 else toast(node.children[0], macros, defining), source=source)
 
         elif node.data == "histogram":
             weight, named, titled = getattributes(node.children[1:], source, macros, defining)
