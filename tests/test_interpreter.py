@@ -19,6 +19,29 @@ def test_dataset():
     events.setindex()
     return data.instantiate(events)
 
+def test_dataset_realistic():
+    from awkwardql import data
+    events = data.RecordArray({
+    "muons": data.ListArray([0, 3, 3, 5], [3, 3, 5, 9], data.RecordArray({
+        "pt": data.PrimitiveArray([1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]),
+        "charge": data.PrimitiveArray([-1, 1, -1, 1, -1, 1, -1, 1, -1]),
+        "iso": data.PrimitiveArray([0, 0, 100, 50, 30, 1, 2, 3, 4])
+    })),
+    "electrons": data.ListArray([0, 5, 6, 8], [5, 6, 8, 12], data.RecordArray({
+        "pt": data.PrimitiveArray([1, 2, 3, 4, 5, 100, 30, 50, 1, 2, 3, 4]),
+        "charge": data.PrimitiveArray([1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1]),
+        "mass": data.PrimitiveArray([10, 10, 10, 10, 10, 5, 15, 15, 9, 8, 7, 6])
+    })),
+    "jets": data.ListArray([0, 5, 6, 8], [5, 6, 8, 12], data.RecordArray({
+        "pt": data.PrimitiveArray([1, 2, 3, 4, 5, 100, 30, 50, 1, 2, 3, 4]),
+        "mass": data.PrimitiveArray([10, 10, 20, 20, 10, 100, 30, 50, 1, 2, 3, 4]),
+    })),
+    "met": data.PrimitiveArray([100, 200, 300, 400]),
+    "stuff": data.ListArray([0, 0, 1, 3], [0, 1, 3, 6], data.PrimitiveArray([1, 2, 2, 3, 3, 3]))
+    })
+    events.setindex()
+    return data.instantiate(events)
+
 def test_assign():
     output, counter = run(r"""
 x = met
@@ -321,6 +344,22 @@ extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
 whatever = ?extreme?.iso2
 """, test_dataset())
     assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
+
+def test_realistic_queries():
+    output, counter = run(r"""
+def mass(one, two) {
+    91.2 + one.pt + two.pt # yes this is just a stand in
+}
+best_leptons = {    
+    Z = electrons as (lep1, lep2) union muons as (lep1, lep2) 
+               where lep1.charge != lep2.charge               
+               min by abs(mass(lep1, lep2) - 91.2)
+    [?Z.lep1, ?Z.lep2]
+}
+leading = best_leptons max by pt
+trailing = best_leptons min by pt
+""", test_dataset_realistic())
+    assert output.tolist() == [{'best_leptons': [{'pt': 1, 'charge': 1, 'mass': 10},{'pt': 2, 'charge': -1, 'mass': 10}],'leading': {'pt': 2, 'charge': -1, 'mass': 10},'trailing': {'pt': 1, 'charge': 1, 'mass': 10}},{'best_leptons': []},{'best_leptons': [{'pt': 4.4, 'charge': 1, 'iso': 50},{'pt': 5.5, 'charge': -1, 'iso': 30}],'leading': {'pt': 5.5, 'charge': -1, 'iso': 30},'trailing': {'pt': 4.4, 'charge': 1, 'iso': 50}},{'best_leptons': [{'pt': 1, 'charge': 1, 'mass': 9},{'pt': 2, 'charge': -1, 'mass': 8}],'leading': {'pt': 2, 'charge': -1, 'mass': 8},'trailing': {'pt': 1, 'charge': 1, 'mass': 9}}]
 
 def test_hist():
     output, counter = run(r"""
