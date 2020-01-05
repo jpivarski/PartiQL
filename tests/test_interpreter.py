@@ -1,6 +1,7 @@
 import pytest
 
 from awkwardql.interpreter import run
+import awkward1 as ak
 
 def test_dataset():
     from awkwardql import data
@@ -18,6 +19,16 @@ def test_dataset():
     })
     events.setindex()
     return data.instantiate(events)
+    
+def test_dataset_awkward():
+    data = ak.Array([
+     {"met": 100.0, "muons": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}], "stuff": []},
+     {"met": 200.0, "muons": [], "stuff": [1]},
+     {"met": 300.0, "muons": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}], "stuff": [2, 2]},
+     {"met": 400.0, "muons": [{"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}, {"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}], "stuff": [3, 3, 3]}
+    ])
+    
+    return data
 
 def test_dataset_realistic():
     from awkwardql import data
@@ -42,251 +53,279 @@ def test_dataset_realistic():
     events.setindex()
     return data.instantiate(events)
 
-def test_assign():
+def tolist(output):
+    if isinstance(output, ak.Array):
+        return ak.tolist(output)
+    return output.tolist()
+
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_assign(dataset):
+    thedata = dataset()
+
     output, counter = run(r"""
 x = met
-""", test_dataset())
-    assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
+""", thedata)
+    assert tolist(output) == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
 
     output, counter = run(r"""
 x = -met
-""", test_dataset())
-    assert output.tolist() == [{"x": -100}, {"x": -200}, {"x": -300}, {"x": -400}]
+""", thedata)
+    assert tolist(output) == [{"x": -100}, {"x": -200}, {"x": -300}, {"x": -400}]
 
     output, counter = run(r"""
 x = +met
-""", test_dataset())
-    assert output.tolist() == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
+""", thedata)
+    assert tolist(output) == [{"x": 100}, {"x": 200}, {"x": 300}, {"x": 400}]
 
-def test_scalar():
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_scalar(dataset):
+    thedata = dataset()
+
     output, counter = run(r"""
 x = met + 1
-""", test_dataset())
-    assert output.tolist() == [{"x": 101}, {"x": 201}, {"x": 301}, {"x": 401}]
+""", thedata)
+    assert tolist(output) == [{"x": 101}, {"x": 201}, {"x": 301}, {"x": 401}]
 
     output, counter = run(r"""
 x = met + 1 + met
-""", test_dataset())
-    assert output.tolist() == [{"x": 201}, {"x": 401}, {"x": 601}, {"x": 801}]
+""", thedata)
+    assert tolist(output) == [{"x": 201}, {"x": 401}, {"x": 601}, {"x": 801}]
 
     output, counter = run(r"""
 x = (met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = (muons == muons)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = (met != met)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+""", thedata)
+    assert tolist(output) == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
 
     output, counter = run(r"""
 x = (muons != muons)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+""", thedata)
+    assert tolist(output) == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
 
     output, counter = run(r"""
 x = (stuff == stuff)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = (stuff != stuff)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+""", thedata)
+    assert tolist(output) == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
 
     output, counter = run(r"""
 x = 1 in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": True}, {"x": False}, {"x": False}]
+""", thedata)
+    assert tolist(output) == [{"x": False}, {"x": True}, {"x": False}, {"x": False}]
 
     output, counter = run(r"""
 x = 2 in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": True}, {"x": False}]
+""", thedata)
+    assert tolist(output) == [{"x": False}, {"x": False}, {"x": True}, {"x": False}]
 
     output, counter = run(r"""
 x = 1 not in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": False}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": False}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = 2 not in stuff
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": False}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": False}, {"x": True}]
 
     output, counter = run(r"""
 x = (met == met and met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = (met == met and met != met)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+""", thedata)
+    assert tolist(output) == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
 
     output, counter = run(r"""
 x = (met == met or met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = (met != met or met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = (not met == met)
-""", test_dataset())
-    assert output.tolist() == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
+""", thedata)
+    assert tolist(output) == [{"x": False}, {"x": False}, {"x": False}, {"x": False}]
 
     output, counter = run(r"""
 x = (not met != met)
-""", test_dataset())
-    assert output.tolist() == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
+""", thedata)
+    assert tolist(output) == [{"x": True}, {"x": True}, {"x": True}, {"x": True}]
 
     output, counter = run(r"""
 x = (if 1 in stuff then 1 else -1)
-""", test_dataset())
-    assert output.tolist() == [{"x": -1}, {"x": 1}, {"x": -1}, {"x": -1}]
-
-    output, counter = run(r"""
-x = (if 2 in stuff then "a" else "b")
-""", test_dataset())
-    assert output.tolist() == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
+""", thedata)
+    assert tolist(output) == [{"x": -1}, {"x": 1}, {"x": -1}, {"x": -1}]
 
     output, counter = run(r"""
 x = {3}
-""", test_dataset())
-    assert output.tolist() == [{"x": 3}, {"x": 3}, {"x": 3}, {"x": 3}]
+""", thedata)
+    assert tolist(output) == [{"x": 3}, {"x": 3}, {"x": 3}, {"x": 3}]
 
     output, counter = run(r"""
 x = { y = 4; y + 2 }
-""", test_dataset())
-    assert output.tolist() == [{"x": 6}, {"x": 6}, {"x": 6}, {"x": 6}]
+""", thedata)
+    assert tolist(output) == [{"x": 6}, {"x": 6}, {"x": 6}, {"x": 6}]
 
     output, counter = run(r"""
 y = 10
 x = { y = 4; y + 2 }
-""", test_dataset())
-    assert output.tolist() == [{"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}]
+""", thedata)
+    assert tolist(output) == [{"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}]
+
+@pytest.mark.parametrize("dataset", [test_dataset])
+def test_scalar_strings(dataset):
+    thedata = dataset()
     
-def test_tabular():
+    output, counter = run(r"""
+x = (if 2 in stuff then "a" else "b")
+""", thedata)
+    assert tolist(output) == [{"x": "b"}, {"x": "b"}, {"x": "a"}, {"x": "b"}]
+
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_as(dataset):
+    thedata = dataset()
+    
     output, counter = run(r"""
 nested = muons as mu
-""", test_dataset())
-    assert output.tolist() == [{"nested": [{"mu": {"pt": 1.1, "iso": 0}}, {"mu": {"pt": 2.2, "iso": 0}}, {"mu": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"mu": {"pt": 4.4, "iso": 50}}, {"mu": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"mu": {"pt": 6.6, "iso": 1}}, {"mu": {"pt": 7.7, "iso": 2}}, {"mu": {"pt": 8.8, "iso": 3}}, {"mu": {"pt": 9.9, "iso": 4}}]}]
+""", thedata)
+    assert tolist(output) == [{"nested": [{"mu": {"pt": 1.1, "iso": 0}}, {"mu": {"pt": 2.2, "iso": 0}}, {"mu": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"mu": {"pt": 4.4, "iso": 50}}, {"mu": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"mu": {"pt": 6.6, "iso": 1}}, {"mu": {"pt": 7.7, "iso": 2}}, {"mu": {"pt": 8.8, "iso": 3}}, {"mu": {"pt": 9.9, "iso": 4}}]}]
 
     output, counter = run(r"""
 nested = muons as (m1, m2)
-""", test_dataset())
+""", thedata)
 
-    assert output.tolist() == [{"nested": [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}]}]
+    assert tolist(output) == [{"nested": [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}]}, {"nested": []}, {"nested": [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}]}, {"nested": [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}]}]
 
     output, counter = run(r"""
 nested = stuff
-""", test_dataset())
-    assert output.tolist() == [{"nested": []}, {"nested": [1]}, {"nested": [2, 2]}, {"nested": [3, 3, 3]}]
+""", thedata)
+    assert tolist(output) == [{"nested": []}, {"nested": [1]}, {"nested": [2, 2]}, {"nested": [3, 3, 3]}]
 
     output, counter = run(r"""
 nested = stuff as x
-""", test_dataset())
-    assert output.tolist() == [{"nested": []}, {"nested": [{"x": 1}]}, {"nested": [{"x": 2}, {"x": 2}]}, {"nested": [{"x": 3}, {"x": 3}, {"x": 3}]}]
+""", thedata)
+    assert tolist(output) == [{"nested": []}, {"nested": [{"x": 1}]}, {"nested": [{"x": 2}, {"x": 2}]}, {"nested": [{"x": 3}, {"x": 3}, {"x": 3}]}]
+
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_with(dataset):
+    thedata = dataset()
 
     output, counter = run(r"""
 joined = muons with { iso2 = 2*iso }
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0}, {"pt": 2.2, "iso": 0, "iso2": 0}, {"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2}, {"pt": 7.7, "iso": 2, "iso2": 4}, {"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+""", thedata)
+    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0}, {"pt": 2.2, "iso": 0, "iso2": 0}, {"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2}, {"pt": 7.7, "iso": 2, "iso2": 4}, {"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
     output, counter = run(r"""
 joined = muons with { iso2 = 2*iso; iso10 = 10*iso }
 """, test_dataset())
-    output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 2.2, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 3.3, "iso": 100, "iso2": 200, "iso10": 1000}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100, "iso10": 500}, {"pt": 5.5, "iso": 30, "iso2": 60, "iso10": 300}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2, "iso10": 10}, {"pt": 7.7, "iso": 2, "iso2": 4, "iso10": 20}, {"pt": 8.8, "iso": 3, "iso2": 6, "iso10": 30}, {"pt": 9.9, "iso": 4, "iso2": 8, "iso10": 40}]}]
+    tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 2.2, "iso": 0, "iso2": 0, "iso10": 0}, {"pt": 3.3, "iso": 100, "iso2": 200, "iso10": 1000}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100, "iso10": 500}, {"pt": 5.5, "iso": 30, "iso2": 60, "iso10": 300}]}, {"joined": [{"pt": 6.6, "iso": 1, "iso2": 2, "iso10": 10}, {"pt": 7.7, "iso": 2, "iso2": 4, "iso10": 20}, {"pt": 8.8, "iso": 3, "iso2": 6, "iso10": 30}, {"pt": 9.9, "iso": 4, "iso2": 8, "iso10": 40}]}]
 
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_where(dataset):
+    thedata = dataset()
     output, counter = run(r"""
 joined = muons where iso > 2
-""", test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+""", thedata)
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
+#@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_where_union():
     output, counter = run(r"""
 joined = muons where iso > 2 union muons
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
 
     output, counter = run(r"""
 joined = muons where iso > 2 union muons where pt < 5
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
     output, counter = run(r"""
 joined = muons where pt < 5 union muons where iso > 2
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
     output, counter = run(r"""
 joined = muons where pt < 5 or iso > 2
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
     output, counter = run(r"""
 joined = muons where iso > 2 with { iso2 = 2*iso } union muons
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
 
     output, counter = run(r"""
 joined = muons where iso > 2 with { iso2 = 2*iso } union muons where pt < 5
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
     output, counter = run(r"""
 joined = muons cross jets
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 10}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "mass": 30}, {"pt": 4.4, "iso": 50, "mass": 50}, {"pt": 5.5, "iso": 30, "mass": 30}, {"pt": 5.5, "iso": 30, "mass": 50}]}, {"joined": [{"pt": 6.6, "iso": 1, "mass": 1}, {"pt": 6.6, "iso": 1, "mass": 2}, {"pt": 6.6, "iso": 1, "mass": 3}, {"pt": 6.6, "iso": 1, "mass": 4}, {"pt": 7.7, "iso": 2, "mass": 1}, {"pt": 7.7, "iso": 2, "mass": 2}, {"pt": 7.7, "iso": 2, "mass": 3}, {"pt": 7.7, "iso": 2, "mass": 4}, {"pt": 8.8, "iso": 3, "mass": 1}, {"pt": 8.8, "iso": 3, "mass": 2}, {"pt": 8.8, "iso": 3, "mass": 3}, {"pt": 8.8, "iso": 3, "mass": 4}, {"pt": 9.9, "iso": 4, "mass": 1}, {"pt": 9.9, "iso": 4, "mass": 2}, {"pt": 9.9, "iso": 4, "mass": 3}, {"pt": 9.9, "iso": 4, "mass": 4}]}]
+    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 20}, {"pt": 1.1, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 20}, {"pt": 2.2, "iso": 0, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 10}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 20}, {"pt": 3.3, "iso": 100, "mass": 10}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "mass": 30}, {"pt": 4.4, "iso": 50, "mass": 50}, {"pt": 5.5, "iso": 30, "mass": 30}, {"pt": 5.5, "iso": 30, "mass": 50}]}, {"joined": [{"pt": 6.6, "iso": 1, "mass": 1}, {"pt": 6.6, "iso": 1, "mass": 2}, {"pt": 6.6, "iso": 1, "mass": 3}, {"pt": 6.6, "iso": 1, "mass": 4}, {"pt": 7.7, "iso": 2, "mass": 1}, {"pt": 7.7, "iso": 2, "mass": 2}, {"pt": 7.7, "iso": 2, "mass": 3}, {"pt": 7.7, "iso": 2, "mass": 4}, {"pt": 8.8, "iso": 3, "mass": 1}, {"pt": 8.8, "iso": 3, "mass": 2}, {"pt": 8.8, "iso": 3, "mass": 3}, {"pt": 8.8, "iso": 3, "mass": 4}, {"pt": 9.9, "iso": 4, "mass": 1}, {"pt": 9.9, "iso": 4, "mass": 2}, {"pt": 9.9, "iso": 4, "mass": 3}, {"pt": 9.9, "iso": 4, "mass": 4}]}]
 
     output, counter = run(r"""
 whatever = muons join jets
 """, test_dataset())
-    assert output.tolist() == [{"whatever": []}, {"whatever": []}, {"whatever": []}, {"whatever": []}]
+    assert tolist(output) == [{"whatever": []}, {"whatever": []}, {"whatever": []}, {"whatever": []}]
 
     output, counter = run(r"""
 joined = muons where iso > 2 with { iso2 = 2*iso }
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
     output, counter = run(r"""
 joined = muons where iso > 2 with { iso2 = 2*iso } join muons
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
     output, counter = run(r"""
 joined = muons where iso > 2 join muons where pt < 5
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
 
     output, counter = run(r"""
 joined = muons where pt < 5 join muons where iso > 2
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
 
     output, counter = run(r"""
 joined = muons where pt < 5 and iso > 2
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}]}, {"joined": []}]
 
     output, counter = run(r"""
 joined = muons where pt < 7 except muons where iso > 2
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
+    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
 
     output, counter = run(r"""
 joined = muons where pt < 7 and not iso > 2
 """, test_dataset())
-    assert output.tolist() == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
+    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
 
+def test_tabular_group():
     output, counter = run(r"""
 grouped = jets group by mass
 """, test_dataset())
