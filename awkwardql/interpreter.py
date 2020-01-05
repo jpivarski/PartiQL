@@ -43,24 +43,24 @@ def generate_awkward(val, out, level=0, record_type=None, verbose=False):
             if verbose:
                 print(spaces + 'out.beginrecord() #record array - outer -', val.keys())
             out.beginrecord()
-                
+
             for key in val.keys():
                 if verbose:
                     print(spaces + 'out.field("{0}")'.format(key))
                 out.field(key)
-                        
+
                 if isinstance(rec[key], ak.layout.RecordArray):
                     if verbose:
                         print(spaces + 'out.beginlist()')
                     out.beginlist()
-                
+
                 generate_awkward(rec[key], out, level=level + 1, verbose=verbose)
 
                 if isinstance(rec[key], ak.layout.RecordArray):
                     if verbose:
                         print(spaces + 'out.endlist()')
                     out.endlist()
-            
+
             if verbose:
                 print(spaces + 'out.endrecord() #record array - outer')
             out.endrecord()
@@ -294,7 +294,8 @@ class NumericalFunction:
         for x in args:
             if x is None:
                 return None
-            if not (isinstance(x, (data.ValueInstance, int, float, str, bytes, ak.layout.NumpyArray)) and isinstance(x.value if isinstance(x, data.ValueInstance) else x, (int, float, str, bytes, ak.layout.NumpyArray))):
+            if (not (isinstance(x, (data.ValueInstance, int, float, str, bytes, ak.layout.NumpyArray)) and
+               isinstance(x.value if isinstance(x, data.ValueInstance) else x, (int, float, str, bytes, ak.layout.NumpyArray)))):
                 raise parser.QueryError("all arguments in {0} must be numbers (not lists or records)".format(self.name), x.line, x.source)
 
         try:
@@ -309,7 +310,7 @@ class NumericalFunction:
             result = self.fcn(*eval_args)
             if isinstance(result, np.ndarray):
                 result = ak.layout.NumpyArray(result)
-            #print(result)
+
         except Exception as err:
             raise parser.QueryError(str(err), node.line, node.source)
 
@@ -447,7 +448,7 @@ class EqualityFunction:
                         if self.evaluate(node, l, r):
                             return True
                     return False
-                            
+
                 else:
                     for l, r in zip(left, right):
                         if not self.evaluate(node, l, r):
@@ -654,7 +655,7 @@ def wherefcn(node, symbols, counter, weight, rowkey):
     container = runstep(node.arguments[0], symbols, counter, weight, rowkey)
     if container is None:
         return None
-    
+
     if isinstance(container, data.ListInstance):
         assert rowkey == container.row
         out = data.ListInstance([], rowkey, index.DerivedColKey(node))
@@ -1011,11 +1012,10 @@ def runstep(node, symbols, counter, weight, rowkey):
                     obj[n] = x
                 out.append(obj)
         elif isinstance(container, (ak.layout.Record, ak.layout.RecordArray)):
-            #assert rowkey == container.at
             out = ak.FillableArray()
-            
+
             combs = [x for x in itertools.combinations(range(len(container[container.keys()[0]])), len(node.names))]
-            
+
             out.beginrecord()
             for comb in combs:
                 for i, name in enumerate(node.names):
@@ -1028,17 +1028,16 @@ def runstep(node, symbols, counter, weight, rowkey):
             out = out.snapshot().layout
             out.setidentities()
         elif isinstance(container, ak.layout.NumpyArray):
-            #assert rowkey == container.at
             out = ak.FillableArray()
-            
+
             combs = [x for x in itertools.combinations(range(len(container)), len(node.names))]
-        
+
             out.beginrecord()
             for comb in combs:
                 for i, name in enumerate(node.names):
                     out.field(name)
                     generate_awkward(container[comb[i]], out)
-            
+
             out = out.snapshot().layout
             out.setidentities()
         else:
@@ -1050,7 +1049,7 @@ def runstep(node, symbols, counter, weight, rowkey):
         container = runstep(node.container, symbols, counter, weight, rowkey)
         if container is None:
             return None
-        
+
         if isinstance(container, data.ListInstance):
             assert rowkey == container.row
             out = data.ListInstance([], rowkey, index.DerivedColKey(node))
@@ -1080,7 +1079,7 @@ def runstep(node, symbols, counter, weight, rowkey):
                     out.append(runstep(node.body, scope, counter, weight, x.row))
         elif isinstance(container, ak.layout.Record):
             out = ak.FillableArray()
-            
+
             scope = SymbolTable(symbols)
             for key in container.keys():
                 scope[key] = container[key]
@@ -1090,7 +1089,7 @@ def runstep(node, symbols, counter, weight, rowkey):
 
             for subnode in node.body:
                 runstep(subnode, scope, counter, weight, container.at)
-                
+
             out.beginrecord()
             for key in scope:
                 out.field(key)
@@ -1099,7 +1098,7 @@ def runstep(node, symbols, counter, weight, rowkey):
                 else:
                     generate_awkward(scope[key], out)
             out.endrecord()
-                
+
             out = out.snapshot().layout
             out.setidentities()
         elif isinstance(container, ak.layout.RecordArray):
@@ -1115,7 +1114,7 @@ def runstep(node, symbols, counter, weight, rowkey):
 
                 for subnode in node.body:
                     runstep(subnode, scope, counter, weight, container.fieldindex(container.keys()[0]))
-            
+
                 out.beginrecord()
                 for key in scope:
                     out.field(key)
@@ -1129,7 +1128,6 @@ def runstep(node, symbols, counter, weight, rowkey):
             out.setidentities()
         else:
             raise parser.QueryError("value to the left of '{0}' must be a list".format("to" if node.new else "with"), node.container.line, node.source)
-            
 
         return out
 
@@ -1254,6 +1252,9 @@ def runstep(node, symbols, counter, weight, rowkey):
         assert False, repr(type(node), node)
 
 
+good_types = (float, int, bytes, str, bool, ak.layout.NumpyArray, ak.layout.EmptyArray, ak.layout.Record, ak.layout.RecordArray)
+
+
 def run(source, dataset):
     if not isinstance(source, parser.AST):
         source = parser.parse(source)
@@ -1290,13 +1291,13 @@ def run(source, dataset):
             else:
                 for n in modified:
                     output.field(n)
-                    val = modified[n] if isinstance(modified[n], (float, int, bytes, str, bool, ak.layout.NumpyArray, ak.layout.EmptyArray, ak.layout.Record, ak.layout.RecordArray)) else modified[n].value
+                    val = modified[n] if isinstance(modified[n], good_types) else modified[n].value
                     if isinstance(val, ak.layout.RecordArray):
                         output.beginlist()
                     generate_awkward(val, output)
                     if isinstance(val, ak.layout.RecordArray):
                         output.endlist()
-        
+
         if isAwkward:
             output.endrecord()
     if isAwkward:
