@@ -869,6 +869,19 @@ class JoinFunction(SetFunction):
                             obj[n] = r[n]
 
                     out.append(obj)
+        if isinstance(left, ak.layout.RecordArray):
+            rights = {x.identity: x for x in right}
+            for x in left:
+                r = rights.get(x.identity)
+                if r is not None:
+                    out.beginrecord()
+                    for key in left.keys():
+                        out.field(key)
+                        generate_awkward(x[key], out)
+                    for key in right.keys():
+                        if key not in left.keys():
+                            out.field(key)
+                            generate_awkward(r, out)
 
 
 fcns[".join"] = JoinFunction()
