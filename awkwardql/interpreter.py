@@ -924,11 +924,17 @@ class ExceptFunction(SetFunction):
     name = "except"
 
     def fill(self, rowkey, left, right, out, node):
-        rights = {x.row for x in right.value}
+        if isinstance(left, data.ListInstance):
+            rights = {x.row for x in right.value}
 
-        for x in left.value:
-            if x.row not in rights:
-                out.append(x)
+            for x in left.value:
+                if x.row not in rights:
+                    out.append(x)
+        elif isinstance(left, ak.layout.RecordArray):
+            rights = {x.identity for x in right}
+            for x in left:
+                if x.identity not in rights:
+                    generate_awkward(x, out)
 
 
 fcns[".except"] = ExceptFunction()

@@ -325,16 +325,18 @@ joined = muons where iso > 2 with { iso2 = 2*iso } join muons
 """, test_dataset())
     assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
-
-def test_tabular_join_except():
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_join_except(dataset):
+    thedata = dataset()
+    
     output, counter = run(r"""
 joined = muons where pt < 7 except muons where iso > 2
-""", test_dataset())
+""", thedata)
     assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
 
     output, counter = run(r"""
 joined = muons where pt < 7 and not iso > 2
-""", test_dataset())
+""", thedata)
     assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
 
 def test_tabular_group():
