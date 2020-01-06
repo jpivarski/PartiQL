@@ -310,6 +310,7 @@ class NumericalFunction:
             result = self.fcn(*eval_args)
             if isinstance(result, np.ndarray):
                 result = ak.layout.NumpyArray(result)
+                result.setidentities()
 
         except Exception as err:
             raise parser.QueryError(str(err), node.line, node.source)
@@ -824,16 +825,25 @@ class CrossFunction(SetFunction):
 
                     out.append(obj)
         elif isinstance(left, ak.layout.RecordArray):
+            seen_ids = set()
+            if str(left.identities) == str(right.identities):
+                generate_awkward(left, out)
+                return
             for x in left:
+                if x.identity in seen_ids:
+                    continue
+                seen_ids.add(x.identity)
                 for y in right:
-                    seen = set()
+                    if x.identity == y.identity or y.identity in seen_ids:
+                        continue
+                    seen_keys = set()
                     out.beginrecord()
                     for key in left.keys():
-                        seen.add(key)
+                        seen_keys.add(key)
                         out.field(key)
                         generate_awkward(x[key], out)
                     for key in right.keys():
-                        if key in seen:
+                        if key in seen_keys:
                             continue
                         out.field(key)
                         generate_awkward(y[key], out)
@@ -1055,6 +1065,7 @@ def runstep(node, symbols, counter, weight, rowkey):
                     out = ak.layout.RecordArray({node.names[0]: combos})
             else:
                 out = combos
+            out.setidentities()
         else:
             raise parser.QueryError("value to the left of 'as' must be a list", node.container.line, node.source)
 
