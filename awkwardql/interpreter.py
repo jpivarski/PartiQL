@@ -826,7 +826,20 @@ class CrossFunction(SetFunction):
         elif isinstance(left, ak.layout.RecordArray):
             for x in left:
                 for y in right:
-                    pass
+                    seen = set()
+                    out.beginrecord()
+                    for key in left.keys():
+                        print(key)
+                        seen.add(key)
+                        out.field(key)
+                        generate_awkward(x[key], out, verbose=True)
+                    for key in right.keys():
+                        if key in seen:
+                            continue
+                        print(key)
+                        out.field(key)
+                        generate_awkward(y[key], out, verbose=True)
+                    out.endrecord()
 
 
 fcns[".cross"] = CrossFunction()
@@ -836,18 +849,18 @@ class JoinFunction(SetFunction):
     name = "join"
 
     def fill(self, rowkey, left, right, out, node):
-        rights = {x.row: x for x in right.value}
+        if isinstance(left, data.ListInstance):
+            rights = {x.row: x for x in right.value}
+            for x in left.value:
+                r = rights.get(x.row)
+                if r is not None:
+                    obj = data.RecordInstance({n: x[n] for n in x.fields()}, x.row, out.col)
 
-        for x in left.value:
-            r = rights.get(x.row)
-            if r is not None:
-                obj = data.RecordInstance({n: x[n] for n in x.fields()}, x.row, out.col)
+                    for n in r.fields():
+                        if n not in obj:
+                            obj[n] = r[n]
 
-                for n in r.fields():
-                    if n not in obj:
-                        obj[n] = r[n]
-
-                out.append(obj)
+                    out.append(obj)
 
 
 fcns[".join"] = JoinFunction()
