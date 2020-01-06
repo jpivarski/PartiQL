@@ -675,24 +675,26 @@ def wherefcn(node, symbols, counter, weight, rowkey):
                 if result.value:
                     out.append(x)
     elif isinstance(container, ak.layout.Record):
-        assert rowkey == container.at
-        out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+        out = ak.FillableArray()
 
         scope = SymbolTable(symbols)
-        for n in x.fields():
-            scope[n] = x[n]
+        for key in container.keys():
+            scope[key] = container[key]
 
-        result = runstep(node.arguments[1], scope, counter, weight, x.row)
+        result = runstep(node.arguments[1], scope, counter, weight, container.fieldindex(container.keys()[0]))
         if result is not None:
             if not (isinstance(result, data.ValueInstance) and isinstance(result.value, bool)):
                 raise parser.QueryError("right or 'where' must be boolean", node.arguments[1].line, node.arguments[1].source)
             if result.value:
-                out.append(x)
+                generate_awkward(container, out, verbose=True)
+        out = out.snapshot().layout
+        out.setidentities()
+
     elif isinstance(container, ak.layout.RecordArray):
-        out = ak.FillableArray()
+        chosen_indices = []
 
         scope = SymbolTable(symbols)
-        for rec in container:
+        for i, rec in enumerate(container):
             for key in container.keys():
                 scope[key] = rec[key]
 
@@ -701,9 +703,9 @@ def wherefcn(node, symbols, counter, weight, rowkey):
                 if not (isinstance(result, data.ValueInstance) and isinstance(result.value, bool)):
                     raise parser.QueryError("right or 'where' must be boolean", node.arguments[1].line, node.arguments[1].source)
                 if result.value:
-                    generate_awkward(rec, out, verbose=True)
-        out = out.snapshot().layout
-        out.setidentities()
+                    chosen_indices.append(i)
+        out = container[chosen_indices]
+
     else:
         raise parser.QueryError("left of 'where' must be a list", node.arguments[0].line, node.arguments[0].source)
 
@@ -762,32 +764,34 @@ class SetFunction:
         if left is None or right is None:
             return None
 
-        if not isinstance(left, data.ListInstance):
+        if isinstance(left, data.ListInstance) and isinstance(right, data.ListInstance):
+            assert rowkey == left.row and rowkey == right.row
+
+            if not all(isinstance(x, data.RecordInstance) for x in left.value):
+                raise parser.QueryError("left and right of '{0}' must contain records"
+                                        .format(self.name),
+                                        node.arguments[0].line,
+                                        node.arguments[0].source)
+            if not all(isinstance(x, data.RecordInstance) for x in right.value):
+                raise parser.QueryError("left and right of '{0}' must contain records"
+                                        .format(self.name),
+                                        node.arguments[1].line,
+                                        node.arguments[1].source)
+
+            out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+            self.fill(rowkey, left, right, out, node)
+        elif (isinstance(left, (ak.layout.RecordArray, ak.layout.EmptyArray)) and
+              isinstance(right, (ak.layout.RecordArray, ak.layout.EmptyArray))):
+            out = ak.FillableArray()
+            self.fill(rowkey, left, right, out, node)
+            out = out.snapshot().layout
+            out.setidentities()
+        else:
             raise parser.QueryError("left and right of '{0}' must be lists"
                                     .format(self.name),
                                     node.arguments[0].line,
                                     node.arguments[0].source)
-        if not isinstance(right, data.ListInstance):
-            raise parser.QueryError("left and right of '{0}' must be lists"
-                                    .format(self.name),
-                                    node.arguments[1].line,
-                                    node.arguments[1].source)
 
-        assert rowkey == left.row and rowkey == right.row
-
-        if not all(isinstance(x, data.RecordInstance) for x in left.value):
-            raise parser.QueryError("left and right of '{0}' must contain records"
-                                    .format(self.name),
-                                    node.arguments[0].line,
-                                    node.arguments[0].source)
-        if not all(isinstance(x, data.RecordInstance) for x in right.value):
-            raise parser.QueryError("left and right of '{0}' must contain records"
-                                    .format(self.name),
-                                    node.arguments[1].line,
-                                    node.arguments[1].source)
-
-        out = data.ListInstance([], rowkey, index.DerivedColKey(node))
-        self.fill(rowkey, left, right, out, node)
         return out
 
 
@@ -795,29 +799,34 @@ class CrossFunction(SetFunction):
     name = "cross"
 
     def fill(self, rowkey, left, right, out, node):
-        i = 0
-        for x in left.value:
-            for y in right.value:
-                if not isinstance(x, data.RecordInstance):
-                    raise parser.QueryError("left and right of 'cross' must contain records",
-                                            node.arguments[0].line,
-                                            node.arguments[0].source)
-                if not isinstance(y, data.RecordInstance):
-                    raise parser.QueryError("left and right of 'cross' must contain records",
-                                            node.arguments[1].line,
-                                            node.arguments[1].source)
+        if isinstance(left, data.ListInstance):
+            i = 0
+            for x in left.value:
+                for y in right.value:
+                    if not isinstance(x, data.RecordInstance):
+                        raise parser.QueryError("left and right of 'cross' must contain records",
+                                                node.arguments[0].line,
+                                                node.arguments[0].source)
+                    if not isinstance(y, data.RecordInstance):
+                        raise parser.QueryError("left and right of 'cross' must contain records",
+                                                node.arguments[1].line,
+                                                node.arguments[1].source)
 
-                row = index.RowKey(rowkey.index + (i,), index.CrossRef(x.row.ref, y.row.ref))
-                i += 1
+                    row = index.RowKey(rowkey.index + (i,), index.CrossRef(x.row.ref, y.row.ref))
+                    i += 1
 
-                obj = data.RecordInstance({}, row, out.col)
-                for n in x.fields():
-                    obj[n] = x[n]
-                for n in y.fields():
-                    if n not in obj:
-                        obj[n] = y[n]
+                    obj = data.RecordInstance({}, row, out.col)
+                    for n in x.fields():
+                        obj[n] = x[n]
+                    for n in y.fields():
+                        if n not in obj:
+                            obj[n] = y[n]
 
-                out.append(obj)
+                    out.append(obj)
+        elif isinstance(left, ak.layout.RecordArray):
+            for x in left:
+                for y in right:
+                    pass
 
 
 fcns[".cross"] = CrossFunction()
@@ -850,19 +859,28 @@ class UnionFunction(SetFunction):
     def fill(self, rowkey, left, right, out, node):
         seen = {}
 
-        for x in left.value + right.value:
-            if x.row in seen:
-                obj = seen[x.row]
-            else:
-                obj = data.RecordInstance({}, x.row, out.col)
+        if isinstance(left, data.ListInstance):
+            for x in left.value + right.value:
+                if x.row in seen:
+                    obj = seen[x.row]
+                else:
+                    obj = data.RecordInstance({}, x.row, out.col)
 
-            for n in x.fields():
-                if n not in obj:
-                    obj[n] = x[n]
+                for n in x.fields():
+                    if n not in obj:
+                        obj[n] = x[n]
 
-            if x.row not in seen:
-                seen[x.row] = obj
-                out.append(obj)
+                if x.row not in seen:
+                    seen[x.row] = obj
+                    out.append(obj)
+        elif isinstance(left, ak.layout.RecordArray):
+            for rec in left:
+                seen[rec.identity] = rec
+                generate_awkward(rec, out)
+            for i, rec in enumerate(right):
+                if rec.identity in seen.keys():
+                    continue
+                generate_awkward(rec, out)
 
 
 fcns[".union"] = UnionFunction()
@@ -1011,35 +1029,19 @@ def runstep(node, symbols, counter, weight, rowkey):
                 for n, x in zip(node.names, tup):
                     obj[n] = x
                 out.append(obj)
-        elif isinstance(container, (ak.layout.Record, ak.layout.RecordArray)):
-            out = ak.FillableArray()
-
-            combs = [x for x in itertools.combinations(range(len(container[container.keys()[0]])), len(node.names))]
-
-            out.beginrecord()
-            for comb in combs:
-                for i, name in enumerate(node.names):
-                    out.field(name)
-                    out.beginrecord()
-                    for field in container.keys():
-                        out.field(field)
-                        generate_awkward(container[field][comb[i]], out)
-                    out.endrecord()
-            out = out.snapshot().layout
-            out.setidentities()
-        elif isinstance(container, ak.layout.NumpyArray):
-            out = ak.FillableArray()
-
+        elif isinstance(container, (ak.layout.NumpyArray, ak.layout.Record, ak.layout.RecordArray)):
             combs = [x for x in itertools.combinations(range(len(container)), len(node.names))]
 
-            out.beginrecord()
-            for comb in combs:
-                for i, name in enumerate(node.names):
-                    out.field(name)
-                    generate_awkward(container[comb[i]], out)
-
-            out = out.snapshot().layout
-            out.setidentities()
+            combs = combs if len(node.names) > 1 else [i[0] for i in combs]
+            combos = container[combs]
+            nnames = len(node.names)
+            if len(combos) > 0:
+                if nnames > 1:
+                    out = ak.layout.RecordArray({name: combos[:, i] for i, name in enumerate(node.names)})
+                else:
+                    out = ak.layout.RecordArray({node.names[0]: combos})
+            else:
+                out = combos
         else:
             raise parser.QueryError("value to the left of 'as' must be a list", node.container.line, node.source)
 

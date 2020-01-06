@@ -21,13 +21,7 @@ def test_dataset():
     return data.instantiate(events)
     
 def test_dataset_awkward():
-    data = ak.Array([
-     {"met": 100.0, "muons": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}], "stuff": []},
-     {"met": 200.0, "muons": [], "stuff": [1]},
-     {"met": 300.0, "muons": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}], "stuff": [2, 2]},
-     {"met": 400.0, "muons": [{"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}, {"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}], "stuff": [3, 3, 3]}
-    ])
-    
+    data = ak.Array(test_dataset().tolist())
     return data
 
 def test_dataset_realistic():
@@ -192,9 +186,9 @@ x = { y = 4; y + 2 }
 """, thedata)
     assert tolist(output) == [{"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}]
 
-@pytest.mark.parametrize("dataset", [test_dataset])
-def test_scalar_strings(dataset):
-    thedata = dataset()
+#@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_scalar_strings():
+    thedata = test_dataset()
     
     output, counter = run(r"""
 x = (if 2 in stuff then "a" else "b")
@@ -247,29 +241,40 @@ def test_tabular_where(dataset):
 joined = muons where iso > 2
 """, thedata)
     assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+    
+    output, counter = run(r"""
+joined = muons where pt < 5 or iso > 2
+""", thedata)
+    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
+    
+    output, counter = run(r"""
+joined = muons where iso > 2 with { iso2 = 2*iso }
+""", test_dataset())
+    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
-#@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
-def test_tabular_where_union():
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_where_union(dataset):
+    thedata = dataset()
+
     output, counter = run(r"""
 joined = muons where iso > 2 union muons
-""", test_dataset())
+""", thedata)
     assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}, {"pt": 6.6, "iso": 1}, {"pt": 7.7, "iso": 2}]}]
 
+def test_tabular_where_union_nested():
+    thedata = test_dataset()
     output, counter = run(r"""
 joined = muons where iso > 2 union muons where pt < 5
-""", test_dataset())
+""", thedata)
     assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
     output, counter = run(r"""
 joined = muons where pt < 5 union muons where iso > 2
-""", test_dataset())
+""", thedata)
     assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
-    output, counter = run(r"""
-joined = muons where pt < 5 or iso > 2
-""", test_dataset())
-    assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}, {"pt": 3.3, "iso": 100}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50}, {"pt": 5.5, "iso": 30}]}, {"joined": [{"pt": 8.8, "iso": 3}, {"pt": 9.9, "iso": 4}]}]
 
+def test_tabular_where_with_union():
     output, counter = run(r"""
 joined = muons where iso > 2 with { iso2 = 2*iso } union muons
 """, test_dataset())
@@ -280,6 +285,7 @@ joined = muons where iso > 2 with { iso2 = 2*iso } union muons where pt < 5
 """, test_dataset())
     assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}, {"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
+def test_tabular_cross():
     output, counter = run(r"""
 joined = muons cross jets
 """, test_dataset())
@@ -289,11 +295,6 @@ joined = muons cross jets
 whatever = muons join jets
 """, test_dataset())
     assert tolist(output) == [{"whatever": []}, {"whatever": []}, {"whatever": []}, {"whatever": []}]
-
-    output, counter = run(r"""
-joined = muons where iso > 2 with { iso2 = 2*iso }
-""", test_dataset())
-    assert tolist(output) == [{"joined": [{"pt": 3.3, "iso": 100, "iso2": 200}]}, {"joined": []}, {"joined": [{"pt": 4.4, "iso": 50, "iso2": 100}, {"pt": 5.5, "iso": 30, "iso2": 60}]}, {"joined": [{"pt": 8.8, "iso": 3, "iso2": 6}, {"pt": 9.9, "iso": 4, "iso2": 8}]}]
 
     output, counter = run(r"""
 joined = muons where iso > 2 with { iso2 = 2*iso } join muons
