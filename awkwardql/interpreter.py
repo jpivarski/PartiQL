@@ -1030,13 +1030,15 @@ def runstep(node, symbols, counter, weight, rowkey):
                     obj[n] = x
                 out.append(obj)
         elif isinstance(container, (ak.layout.NumpyArray, ak.layout.Record, ak.layout.RecordArray)):
-            combs = [x for x in itertools.combinations(range(len(container)), len(node.names))]
+            combs = None
+            if len(node.names) > 1:
+                combs = [x for x in itertools.combinations(range(len(container)), len(node.names))]
+            else:
+                combs = [i for i in range(len(container))]
 
-            combs = combs if len(node.names) > 1 else [i[0] for i in combs]
             combos = container[combs]
-            nnames = len(node.names)
             if len(combos) > 0:
-                if nnames > 1:
+                if len(node.names) > 1:
                     out = ak.layout.RecordArray({name: combos[:, i] for i, name in enumerate(node.names)})
                 else:
                     out = ak.layout.RecordArray({node.names[0]: combos})
