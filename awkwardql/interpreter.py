@@ -686,7 +686,7 @@ def wherefcn(node, symbols, counter, weight, rowkey):
             if not (isinstance(result, data.ValueInstance) and isinstance(result.value, bool)):
                 raise parser.QueryError("right or 'where' must be boolean", node.arguments[1].line, node.arguments[1].source)
             if result.value:
-                generate_awkward(container, out, verbose=True)
+                generate_awkward(container, out)
         out = out.snapshot().layout
         out.setidentities()
 
@@ -829,16 +829,14 @@ class CrossFunction(SetFunction):
                     seen = set()
                     out.beginrecord()
                     for key in left.keys():
-                        print(key)
                         seen.add(key)
                         out.field(key)
-                        generate_awkward(x[key], out, verbose=True)
+                        generate_awkward(x[key], out)
                     for key in right.keys():
                         if key in seen:
                             continue
-                        print(key)
                         out.field(key)
-                        generate_awkward(y[key], out, verbose=True)
+                        generate_awkward(y[key], out)
                     out.endrecord()
 
 
