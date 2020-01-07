@@ -113,6 +113,15 @@ def generate_awkward(val, out, level=0, record_type=None, verbose=False):
         if verbose:
             print(spaces + 'out.endlist()')
         out.endlist()
+    elif isinstance(val, list):  # this is a stand in until we have union arrays for temporary lists of records
+        if verbose:
+            print(spaces + 'out.beginlist()')
+        out.beginlist()
+        for i in range(len(val)):
+            generate_awkward(val[i], out, level=level + 1, verbose=verbose)
+        if verbose:
+            print(spaces + 'out.endlist()')
+        out.endlist()
     else:
         raise Exception('type: ' + type(val) + ' not yet handled!')
 
@@ -537,7 +546,19 @@ class BooleanFunction:
 
 class NewListFunction:
     def __call__(self, node, symbols, counter, weight, rowkey):
-        out = list(filter(None, [runstep(arg, symbols, counter, weight, rowkey) for arg in node.arguments]))
+        isAwkward = False
+        out = []
+        for arg in node.arguments:
+            result = runstep(arg, symbols, counter, weight, rowkey)
+            if isinstance(result, (ak.layout.Record)):
+                # print(ak.tolist(result))
+                isAwkward = True
+            if result is not None:
+                out.append(result)
+
+            if isAwkward:
+                pass
+
         return data.ListInstance(out, rowkey, index.DerivedColKey(node))
 
 
@@ -609,7 +630,7 @@ def ifthenelse(node, symbols, counter, weight, rowkey):
         return None
 
     if not (isinstance(predicate, data.ValueInstance) and isinstance(predicate.value, bool)):
-        raise parser.QueryError("predicte of if/then/else must evaluate to true or false", node.arguments[0].line, node.source)
+        raise parser.QueryError("predicate of if/then/else must evaluate to true or false", node.arguments[0].line, node.source)
     if predicate.value:
         return runstep(node.arguments[1], symbols, counter, weight, rowkey)
     elif len(node.arguments) == 2:
@@ -630,8 +651,14 @@ class MinMaxFunction:
         if container is None:
             return None
 
-        bestval, bestobj = None, None
+        isAwkwardListInstance = False
         if isinstance(container, data.ListInstance):
+            if len(container.value):
+                if isinstance(container.value[0], ak.layout.Record):
+                    isAwkwardListInstance = True
+
+        bestval, bestobj = None, None
+        if isinstance(container, data.ListInstance) and not isAwkwardListInstance:
             assert rowkey == container.row
 
             for x in container.value:
@@ -657,9 +684,11 @@ class MinMaxFunction:
                     if bestval is None or (self.ismin and result < bestval) or (not self.ismin and result > bestval):
                         bestval = result
                         bestobj = x
-        elif isinstance(container, ak.layout.RecordArray):
+        elif isinstance(container, ak.layout.RecordArray) or isAwkwardListInstance:
+            if isAwkwardListInstance:
+                container = container.value
             for i, x in enumerate(container):
-                if not isinstance(x, ak.layout.Record):
+                if not isinstance(x, (ak.layout.Record, ak.layout.RecordArray)):
                     raise parser.QueryError("left of '{0}' must contain records"
                                             .format("min by" if self.ismin else "max by"),
                                             node.arguments[0].line,
@@ -671,6 +700,8 @@ class MinMaxFunction:
 
                 result = runstep(node.arguments[1], scope, counter, weight, 0)
                 if result is not None:
+                    if isinstance(result, data.ValueInstance) and isinstance(result.value, (int, float)):
+                        result = result.value
                     if not isinstance(result, (int, bool, float, str, bytes)):
                         raise parser.QueryError("right of '{0}' must resolve to a number"
                                                 .format("min by" if self.ismin else "max by"),
@@ -681,7 +712,8 @@ class MinMaxFunction:
                         bestobj = i
             if bestobj is not None:
                 bestobj = container[bestobj]
-
+        elif isinstance(container, ak.layout.EmptyArray):
+            pass
         else:
             raise parser.QueryError("left of '{0}' must be a list"
                                     .format("min by" if self.ismin else "max by"),
@@ -987,7 +1019,7 @@ class UnionFunction(SetFunction):
         elif isinstance(left, ak.layout.RecordArray):
             # switch to array manipulation requires union array
             for rec in left:
-                seen[rec.identity] = rec
+                seen[rec.identity] = 0
                 generate_awkward(rec, out)
             for i, rec in enumerate(right):
                 if rec.identity in seen.keys():
@@ -1167,11 +1199,16 @@ def runstep(node, symbols, counter, weight, rowkey):
             combos = container[combs]
             if len(combos) > 0:
                 if len(node.names) > 1:
+                    identities = ak.layout.Identities32(0,
+                                                        container.identities.fieldloc,
+                                                        np.arange(len(combos)).reshape((len(combos), 1)))
                     out = ak.layout.RecordArray({name: combos[:, i] for i, name in enumerate(node.names)})
+                    out.setidentities(identities)
                 else:
                     out = ak.layout.RecordArray({node.names[0]: combos})
             else:
                 out = combos
+
         else:
             raise parser.QueryError("value to the left of 'as' must be a list", node.container.line, node.source)
 
@@ -1306,6 +1343,8 @@ def runstep(node, symbols, counter, weight, rowkey):
             component = runstep(axis.expression, symbols, counter, weight, rowkey)
             if isinstance(component, data.ValueInstance) and isinstance(component.value, (int, float)):
                 datum.append(component.value)
+            elif isinstance(component, (int, float)):
+                datum.append(component)
             elif component is None:
                 datum.append(None)
             else:
@@ -1402,8 +1441,6 @@ def run(source, dataset):
     output = ak.FillableArray() if isAwkward else dataset.newempty()
     counter = DirectoryCounter()
     for entry in dataset:
-        if isAwkward:
-            output.beginrecord()
         if not isinstance(entry, (data.RecordInstance, ak.layout.Record)):
             raise parser.QueryError("entries must be records (outermost array structure must be Record)")
 
@@ -1424,6 +1461,7 @@ def run(source, dataset):
                     out[n] = modified[n]
                 output.append(out)
             else:
+                output.beginrecord()
                 for n in modified:
                     output.field(n)
                     val = modified[n] if isinstance(modified[n], good_types) else modified[n].value
@@ -1432,9 +1470,7 @@ def run(source, dataset):
                     generate_awkward(val, output)
                     if isinstance(val, ak.layout.RecordArray):
                         output.endlist()
-
-        if isAwkward:
-            output.endrecord()
+                output.endrecord()
     if isAwkward:
         output = output.snapshot()
 
