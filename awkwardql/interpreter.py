@@ -971,7 +971,6 @@ class UnionFunction(SetFunction):
         seen = {}
 
         if isinstance(left, data.ListInstance):
-            
             for x in left.value + right.value:
                 if x.row in seen:
                     obj = seen[x.row]
