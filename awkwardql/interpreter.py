@@ -1238,7 +1238,6 @@ def runstep(node, symbols, counter, weight, rowkey):
             out = ak.FillableArray()
 
             scope = SymbolTable(symbols)
-            print(ak.tolist(container))
             for rec in container:
                 for key in container.keys():
                     scope[key] = rec[key]
