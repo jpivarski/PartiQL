@@ -630,38 +630,63 @@ class MinMaxFunction:
         if container is None:
             return None
 
-        if not isinstance(container, data.ListInstance):
+        bestval, bestobj = None, None
+        if isinstance(container, data.ListInstance):
+            assert rowkey == container.row
+
+            for x in container.value:
+                if not isinstance(x, data.RecordInstance):
+                    raise parser.QueryError("left of '{0}' must contain records"
+                                            .format("min by" if self.ismin else "max by"),
+                                            node.arguments[0].line,
+                                            node.arguments[0].source)
+
+                scope = SymbolTable(symbols)
+                for n in x.fields():
+                    scope[n] = x[n]
+
+                result = runstep(node.arguments[1], scope, counter, weight, x.row)
+                if result is not None:
+                    if isinstance(result, data.ValueInstance) and isinstance(result.value, (int, float)):
+                        result = result.value
+                    else:
+                        raise parser.QueryError("right of '{0}' must resolve to a number"
+                                                .format("min by" if self.ismin else "max by"),
+                                                node.arguments[1].line,
+                                                node.arguments[1].source)
+                    if bestval is None or (self.ismin and result < bestval) or (not self.ismin and result > bestval):
+                        bestval = result
+                        bestobj = x
+        elif isinstance(container, ak.layout.RecordArray):
+            for i, x in enumerate(container):
+                if not isinstance(x, ak.layout.Record):
+                    raise parser.QueryError("left of '{0}' must contain records"
+                                            .format("min by" if self.ismin else "max by"),
+                                            node.arguments[0].line,
+                                            node.arguments[0].source)
+
+                scope = SymbolTable(symbols)
+                for n in x.keys():
+                    scope[n] = x[n]
+
+                result = runstep(node.arguments[1], scope, counter, weight, 0)
+                if result is not None:
+                    if not isinstance(result, (int, bool, float, str, bytes)):
+                        raise parser.QueryError("right of '{0}' must resolve to a number"
+                                                .format("min by" if self.ismin else "max by"),
+                                                node.arguments[1].line,
+                                                node.arguments[1].source)
+                    if bestval is None or (self.ismin and result < bestval) or (not self.ismin and result > bestval):
+                        bestval = result
+                        bestobj = i
+            if bestobj is not None:
+                bestobj = container[bestobj]
+
+        else:
             raise parser.QueryError("left of '{0}' must be a list"
                                     .format("min by" if self.ismin else "max by"),
                                     node.arguments[0].line,
                                     node.arguments[0].source)
-
-        assert rowkey == container.row
-        bestval, bestobj = None, None
-
-        for x in container.value:
-            if not isinstance(x, data.RecordInstance):
-                raise parser.QueryError("left of '{0}' must contain records"
-                                        .format("min by" if self.ismin else "max by"),
-                                        node.arguments[0].line,
-                                        node.arguments[0].source)
-
-            scope = SymbolTable(symbols)
-            for n in x.fields():
-                scope[n] = x[n]
-
-            result = runstep(node.arguments[1], scope, counter, weight, x.row)
-            if result is not None:
-                if isinstance(result, data.ValueInstance) and isinstance(result.value, (int, float)):
-                    result = result.value
-                else:
-                    raise parser.QueryError("right of '{0}' must resolve to a number"
-                                            .format("min by" if self.ismin else "max by"),
-                                            node.arguments[1].line,
-                                            node.arguments[1].source)
-                if bestval is None or (self.ismin and result < bestval) or (not self.ismin and result > bestval):
-                    bestval = result
-                    bestobj = x
 
         return bestobj   # maybe None (if list is empty or all results are unknown)
 
@@ -921,6 +946,7 @@ class JoinFunction(SetFunction):
 
                     out.append(obj)
         if isinstance(left, ak.layout.RecordArray):
+            # switch to array manipulation requires union array
             rights = {x.identity: x for x in right}
             for x in left:
                 r = rights.get(x.identity)
@@ -945,6 +971,7 @@ class UnionFunction(SetFunction):
         seen = {}
 
         if isinstance(left, data.ListInstance):
+            
             for x in left.value + right.value:
                 if x.row in seen:
                     obj = seen[x.row]
@@ -959,6 +986,7 @@ class UnionFunction(SetFunction):
                     seen[x.row] = obj
                     out.append(obj)
         elif isinstance(left, ak.layout.RecordArray):
+            # switch to array manipulation requires union array
             for rec in left:
                 seen[rec.identity] = rec
                 generate_awkward(rec, out)
@@ -1210,6 +1238,7 @@ def runstep(node, symbols, counter, weight, rowkey):
             out = ak.FillableArray()
 
             scope = SymbolTable(symbols)
+            print(ak.tolist(container))
             for rec in container:
                 for key in container.keys():
                     scope[key] = rec[key]
