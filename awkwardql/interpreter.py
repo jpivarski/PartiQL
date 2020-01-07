@@ -1423,10 +1423,7 @@ def runstep(node, symbols, counter, weight, rowkey):
         assert False, repr(type(node), node)
 
 
-good_types = (float, int, bytes, str, bool, ak.layout.NumpyArray,
-              ak.layout.ListArray32, ak.layout.ListArray64,
-              ak.layout.EmptyArray, ak.layout.Record,
-              ak.layout.RecordArray)
+good_types = (float, int, bytes, str, bool, ak.layout.Record, ak.layout.Content)
 
 
 def run(source, dataset):
@@ -1471,6 +1468,7 @@ def run(source, dataset):
                     if isinstance(val, ak.layout.RecordArray):
                         output.endlist()
                 output.endrecord()
+
     if isAwkward:
         output = output.snapshot()
 
