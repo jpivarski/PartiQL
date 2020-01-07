@@ -76,6 +76,24 @@ def generate_awkward(val, out, level=0, record_type=None, verbose=False):
         if verbose:
             print(spaces + 'out.endrecord() #record')
         out.endrecord()
+    elif isinstance(val, (ak.layout.ListArray32, ak.layout.ListArray64)):
+        if verbose:
+            print(spaces + 'out.beginlist() # len={0} / format={1} / type={2} / ndim={3}'.format(len(val),
+                                                                                                 val.format,
+                                                                                                 val.type,
+                                                                                                 val.ndim))
+        out.beginlist()
+        for i in range(len(val)):
+            if verbose:
+                print(spaces + 'out.beginlist()')
+            out.beginlist()
+            generate_awkward(val[i], out, level=level + 1, verbose=verbose)
+            if verbose:
+                print(spaces + 'out.endlist()')
+            out.endlist()
+        if verbose:
+            print(spaces + 'out.endlist()')
+        out.endlist()
     elif isinstance(val, ak.layout.NumpyArray):
         if verbose:
             print(spaces + 'out.beginlist() # len={0} / format={1} / type={2} / ndim={3}'.format(len(val),
@@ -721,37 +739,73 @@ def groupfcn(node, symbols, counter, weight, rowkey):
     if container is None:
         return None
 
-    if not isinstance(container, data.ListInstance):
+    if isinstance(container, data.ListInstance):
+        assert rowkey == container.row
+        out = data.ListInstance([], rowkey, index.DerivedColKey(node))
+        groupindex = index.RowIndex([])   # new, never-before-seen index (two groupbys can't be merged)
+        groups = {}
+
+        for x in container.value:
+            if not isinstance(x, data.RecordInstance):
+                raise parser.QueryError("left of 'group by' must contain records", node.arguments[0].line, node.arguments[0].source)
+
+            scope = SymbolTable(symbols)
+            for n in x.fields():
+                scope[n] = x[n]
+            result = runstep(node.arguments[1], scope, counter, weight, x.row)
+            if result is not None:
+                if isinstance(result, data.ValueInstance):
+                    groupkey = result.value
+                elif isinstance(result, data.ListInstance):
+                    groupkey = tuple(sorted(y.row for y in result.value))
+                elif isinstance(result, data.RecordInstance):
+                    groupkey = result.row
+
+                if groupkey not in groups:
+                    groupindex.array.append(rowkey.index + (len(groups),))
+                    groups[groupkey] = data.ListInstance([], groupindex[-1], index.DerivedColKey(node))
+                    out.append(groups[groupkey])
+
+                groups[groupkey].append(x)
+
+    elif isinstance(container, ak.layout.RecordArray):
+        groupindex = index.RowIndex([])   # new, never-before-seen index (two groupbys can't be merged)
+        groups = {}
+
+        for i, x in enumerate(container):
+            scope = SymbolTable(symbols)
+            for n in container.keys():
+                scope[n] = x[n]
+
+            result = runstep(node.arguments[1], scope, counter, weight, 0)
+            if result is not None:
+                if isinstance(result, (float, int, bool, str, bytes)):
+                    groupkey = result
+                elif isinstance(result, data.ListInstance):
+                    groupkey = tuple(sorted(y.row for y in result.value))
+                elif isinstance(result, ak.layout.Record):
+                    groupkey = result.identity
+
+                if groupkey not in groups:
+                    groups[groupkey] = list()
+
+                groups[groupkey].append(i)
+        outidx = []
+        outlens = [0]
+        for x in groups.values():
+            outidx.extend(x)
+            outlens.append(len(x))
+        offsets = np.cumsum(outlens)
+        starts = ak.layout.Index64(offsets[:-1])
+        stops = ak.layout.Index64(offsets[1:])
+        out = ak.layout.ListArray64(starts, stops, container[outidx])
+
+    elif isinstance(container, ak.layout.EmptyArray):
+        out = ak.layout.EmptyArray()
+        out.setidentities()
+
+    else:
         raise parser.QueryError("left of 'group by' must be a list", node.arguments[0].line, node.arguments[0].source)
-
-    assert rowkey == container.row
-    out = data.ListInstance([], rowkey, index.DerivedColKey(node))
-    groupindex = index.RowIndex([])   # new, never-before-seen index (two groupbys can't be merged)
-    groups = {}
-
-    for x in container.value:
-        if not isinstance(x, data.RecordInstance):
-            raise parser.QueryError("left of 'group by' must contain records", node.arguments[0].line, node.arguments[0].source)
-
-        scope = SymbolTable(symbols)
-        for n in x.fields():
-            scope[n] = x[n]
-
-        result = runstep(node.arguments[1], scope, counter, weight, x.row)
-        if result is not None:
-            if isinstance(result, data.ValueInstance):
-                groupkey = result.value
-            elif isinstance(result, data.ListInstance):
-                groupkey = tuple(sorted(y.row for y in result.value))
-            elif isinstance(result, data.RecordInstance):
-                groupkey = result.row
-
-            if groupkey not in groups:
-                groupindex.array.append(rowkey.index + (len(groups),))
-                groups[groupkey] = data.ListInstance([], groupindex[-1], index.DerivedColKey(node))
-                out.append(groups[groupkey])
-
-            groups[groupkey].append(x)
 
     return out
 
@@ -783,10 +837,15 @@ class SetFunction:
             self.fill(rowkey, left, right, out, node)
         elif (isinstance(left, (ak.layout.RecordArray, ak.layout.EmptyArray)) and
               isinstance(right, (ak.layout.RecordArray, ak.layout.EmptyArray))):
-            out = ak.FillableArray()
+            if self.name not in ['cross', 'except']:
+                out = ak.FillableArray()
+            else:
+                out = []
             self.fill(rowkey, left, right, out, node)
-            out = out.snapshot().layout
-            out.setidentities()
+            if self.name not in ['cross', 'except']:
+                out = out.snapshot().layout
+            else:
+                out = out[0]
         else:
             raise parser.QueryError("left and right of '{0}' must be lists"
                                     .format(self.name),
@@ -825,29 +884,21 @@ class CrossFunction(SetFunction):
 
                     out.append(obj)
         elif isinstance(left, ak.layout.RecordArray):
-            seen_ids = set()
-            if str(left.identities) == str(right.identities):
-                generate_awkward(left, out)
-                return
-            for x in left:
-                if x.identity in seen_ids:
-                    continue
-                seen_ids.add(x.identity)
-                for y in right:
-                    if x.identity == y.identity or y.identity in seen_ids:
-                        continue
-                    seen_keys = set()
-                    out.beginrecord()
-                    for key in left.keys():
-                        seen_keys.add(key)
-                        out.field(key)
-                        generate_awkward(x[key], out)
-                    for key in right.keys():
-                        if key in seen_keys:
-                            continue
-                        out.field(key)
-                        generate_awkward(y[key], out)
-                    out.endrecord()
+            combos = np.array(list(itertools.product(range(len(left)), range(len(right)))))
+            if len(combos):
+                left_keys = list(left.keys())
+                right_keys = list(filter(None, [x if x not in left_keys else None for x in right.keys()]))
+
+                left_combs = left[combos[:, 0]]
+                right_combs = right[combos[:, 1]]
+
+                outdict = {field: left_combs[field] for field in left_keys}
+                outdict.update({field: right_combs[field] for field in right_keys})
+
+                out.append(ak.layout.RecordArray(outdict))
+            else:
+                out.append(ak.layout.EmptyArray())
+                out[0].setidentities()
 
 
 fcns[".cross"] = CrossFunction()
@@ -932,9 +983,8 @@ class ExceptFunction(SetFunction):
                     out.append(x)
         elif isinstance(left, ak.layout.RecordArray):
             rights = {x.identity for x in right}
-            for x in left:
-                if x.identity not in rights:
-                    generate_awkward(x, out)
+            idxs = [x.identity not in rights for x in left]
+            out.append(left[idxs])
 
 
 fcns[".except"] = ExceptFunction()
@@ -1049,6 +1099,17 @@ def runstep(node, symbols, counter, weight, rowkey):
                                                 node.source)
                 else:
                     return obj[node.field]
+            elif isinstance(obj, ak.layout.Record):
+                if node.field not in obj.keys():
+                    if node.maybe:
+                        return None
+                    else:
+                        raise parser.QueryError("attribute {0} is missing in some or all"                      "cases (use '?.'     instead of '.' to ignore)"
+                                                .format(repr(node.field)),
+                                                node.object.line,
+                                                node.source)
+                else:
+                    return obj[node.field]
 
             else:
                 raise parser.QueryError("value to the left of '.' (get-attribute) must be a record or a list of records", node.object.line, node.source)
@@ -1084,7 +1145,6 @@ def runstep(node, symbols, counter, weight, rowkey):
                     out = ak.layout.RecordArray({node.names[0]: combos})
             else:
                 out = combos
-            out.setidentities()
         else:
             raise parser.QueryError("value to the left of 'as' must be a list", node.container.line, node.source)
 
@@ -1297,7 +1357,10 @@ def runstep(node, symbols, counter, weight, rowkey):
         assert False, repr(type(node), node)
 
 
-good_types = (float, int, bytes, str, bool, ak.layout.NumpyArray, ak.layout.EmptyArray, ak.layout.Record, ak.layout.RecordArray)
+good_types = (float, int, bytes, str, bool, ak.layout.NumpyArray,
+              ak.layout.ListArray32, ak.layout.ListArray64,
+              ak.layout.EmptyArray, ak.layout.Record,
+              ak.layout.RecordArray)
 
 
 def run(source, dataset):

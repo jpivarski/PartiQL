@@ -47,6 +47,10 @@ def test_dataset_realistic():
     events.setindex()
     return data.instantiate(events)
 
+def test_dataset_realistic_awkward():
+    data = ak.Array(test_dataset_realistic().tolist())
+    return data
+
 def tolist(output):
     if isinstance(output, ak.Array):
         return ak.tolist(output)
@@ -186,9 +190,9 @@ x = { y = 4; y + 2 }
 """, thedata)
     assert tolist(output) == [{"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}, {"y": 10, "x": 6}]
 
-#@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
-def test_scalar_strings():
-    thedata = test_dataset()
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_scalar_strings(dataset):
+    thedata = dataset()
     
     output, counter = run(r"""
 x = (if 2 in stuff then "a" else "b")
@@ -339,22 +343,26 @@ joined = muons where pt < 7 and not iso > 2
 """, thedata)
     assert tolist(output) == [{"joined": [{"pt": 1.1, "iso": 0}, {"pt": 2.2, "iso": 0}]}, {"joined": []}, {"joined": []}, {"joined": [{"pt": 6.6, "iso": 1}]}]
 
-def test_tabular_group():
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_group(dataset):
+    thedata = dataset()
+    
     output, counter = run(r"""
 grouped = jets group by mass
-""", test_dataset())
-    assert output.tolist() == [{"grouped": [[{"pt": 1, "mass": 10}, {"pt": 2, "mass": 10}, {"pt": 5, "mass": 10}], [{"pt": 3, "mass": 20}, {"pt": 4, "mass": 20}]]}, {"grouped": [[{"pt": 100, "mass": 100}]]}, {"grouped": [[{"pt": 30, "mass": 30}], [{"pt": 50, "mass": 50}]]}, {"grouped": [[{"pt": 1, "mass": 1}], [{"pt": 2, "mass": 2}], [{"pt": 3, "mass": 3}], [{"pt": 4, "mass": 4}]]}]
+""", thedata)
+    assert tolist(output) == [{"grouped": [[{"pt": 1, "mass": 10}, {"pt": 2, "mass": 10}, {"pt": 5, "mass": 10}], [{"pt": 3, "mass": 20}, {"pt": 4, "mass": 20}]]}, {"grouped": [[{"pt": 100, "mass": 100}]]}, {"grouped": [[{"pt": 30, "mass": 30}], [{"pt": 50, "mass": 50}]]}, {"grouped": [[{"pt": 1, "mass": 1}], [{"pt": 2, "mass": 2}], [{"pt": 3, "mass": 3}], [{"pt": 4, "mass": 4}]]}]
 
     output, counter = run(r"""
 grouped = muons as m1 cross muons as m2 group by m1
-""", test_dataset())
-    assert output.tolist() == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}], [{"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
+""", thedata)
+    assert tolist(output) == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}], [{"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}], [{"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}], [{"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
 
     output, counter = run(r"""
 grouped = muons as m1 cross muons as m2 group by m2
-""", test_dataset())
-    assert output.tolist() == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}], [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
+""", thedata)
+    assert tolist(output) == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}], [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
 
+def test_tabular_max():
     output, counter = run(r"""
 x = 3
 extreme = muons max by pt
@@ -398,7 +406,9 @@ whatever = ?extreme?.iso2
 """, test_dataset())
     assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
 
+#@pytest.mark.parametrize("dataset", [test_dataset_realistic, test_dataset_realistic_awkward])
 def test_realistic_queries():
+    thedata = test_dataset_realistic()
     output, counter = run(r"""
 def mass(one, two) {
     91.2 + one.pt + two.pt # yes this is just a stand in
@@ -411,8 +421,8 @@ best_leptons = {
 }
 leading = best_leptons max by pt
 trailing = best_leptons min by pt
-""", test_dataset_realistic())
-    assert output.tolist() == [{'best_leptons': [{'pt': 1, 'charge': 1, 'mass': 10},{'pt': 2, 'charge': -1, 'mass': 10}],'leading': {'pt': 2, 'charge': -1, 'mass': 10},'trailing': {'pt': 1, 'charge': 1, 'mass': 10}},{'best_leptons': []},{'best_leptons': [{'pt': 4.4, 'charge': 1, 'iso': 50},{'pt': 5.5, 'charge': -1, 'iso': 30}],'leading': {'pt': 5.5, 'charge': -1, 'iso': 30},'trailing': {'pt': 4.4, 'charge': 1, 'iso': 50}},{'best_leptons': [{'pt': 1, 'charge': 1, 'mass': 9},{'pt': 2, 'charge': -1, 'mass': 8}],'leading': {'pt': 2, 'charge': -1, 'mass': 8},'trailing': {'pt': 1, 'charge': 1, 'mass': 9}}]
+""", thedata)
+    assert tolist(output) == [{'best_leptons': [{'pt': 1, 'charge': 1, 'mass': 10},{'pt': 2, 'charge': -1, 'mass': 10}],'leading': {'pt': 2, 'charge': -1, 'mass': 10},'trailing': {'pt': 1, 'charge': 1, 'mass': 10}},{'best_leptons': []},{'best_leptons': [{'pt': 4.4, 'charge': 1, 'iso': 50},{'pt': 5.5, 'charge': -1, 'iso': 30}],'leading': {'pt': 5.5, 'charge': -1, 'iso': 30},'trailing': {'pt': 4.4, 'charge': 1, 'iso': 50}},{'best_leptons': [{'pt': 1, 'charge': 1, 'mass': 9},{'pt': 2, 'charge': -1, 'mass': 8}],'leading': {'pt': 2, 'charge': -1, 'mass': 8},'trailing': {'pt': 1, 'charge': 1, 'mass': 9}}]
 
 def test_hist():
     output, counter = run(r"""
