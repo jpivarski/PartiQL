@@ -901,6 +901,7 @@ class SetFunction:
             self.fill(rowkey, left, right, out, node)
             if self.name not in ['cross', 'except']:
                 out = out.snapshot().layout
+                out.setidentities()
             else:
                 out = out[0]
         else:
@@ -1054,43 +1055,53 @@ class ReducerFunction:
         self.name, self.typecheck, self.identity, self.fcn = name, typecheck, identity, fcn
 
     @staticmethod
-    def numerical(x):
+    def numerical(x, isAwkward):
         "numbers"
-        return isinstance(x, data.ValueInstance) and isinstance(x.value, (int, float)) and not isinstance(x.value, bool)
+        val = x if isAwkward else x.value
+        return (isinstance(x, data.ValueInstance) or isAwkward) and isinstance(val, (int, float)) and not isinstance(val, bool)
 
     @staticmethod
-    def boolean(x):
+    def boolean(x, isAwkward):
         "booleans (true or false)"
-        return isinstance(x, data.ValueInstance) and isinstance(x.value, bool)
+        val = x if isAwkward else x.value
+        return (isinstance(x, data.ValueInstance) or isAwkward) and isinstance(val, bool)
 
     def __call__(self, node, symbols, counter, weight, rowkey):
         if len(node.arguments) != 1:
             raise parser.QueryError("reducer function {0} takes exactly one argument".format(repr(self.name)), node.line, node.source)
 
         arg = runstep(node.arguments[0], symbols, counter, weight, rowkey)
+        
+        argval = arg
+        isAwkward = True
+        if isinstance(arg, data.ListInstance):
+            isAwkward = False
+            argval = arg.value
+        
         if arg is None:
             return None
-
-        if not isinstance(arg, data.ListInstance):
+        if not isinstance(arg, (data.ListInstance, ak.layout.RecordArray, ak.layout.NumpyArray, ak.layout.EmptyArray)):
             raise parser.QueryError("reducer function {0} must be given a list (not a value or record)"
                                     .format(repr(self.name)),
                                     node.arguments[0].line,
                                     node.source)
 
         if self.typecheck is not None:
-            for x in arg.value:
-                if not self.typecheck(x):
+            for x in argval:
+                if not self.typecheck(x, isAwkward):
                     raise parser.QueryError("reducer function {0} must be given a list of {1}"
                                             .format(repr(self.name), self.typecheck.__doc__),
                                             node.arguments[0].line, node.source)
 
-        if len(arg.value) == 0 and self.identity is None:
+        
+
+        if len(argval) == 0 and self.identity is None:
             return None
-        elif len(arg.value) == 0:
+        elif len(argval) == 0:
             return data.ValueInstance(self.identity, rowkey, index.DerivedColKey(node))
         else:
             try:
-                result = self.fcn([x.value for x in arg.value])
+                result = self.fcn([x if isAwkward else x.value for x in argval])
             except Exception as err:
                 raise parser.QueryError(str(err), node.line, node.source)
             else:
@@ -1152,26 +1163,30 @@ def runstep(node, symbols, counter, weight, rowkey):
                     if node.maybe:
                         return None
                     else:
-                        raise parser.QueryError("attribute {0} is missing in some or all"                      "cases (use '?.' instead of '.' to ignore)"
+                        raise parser.QueryError("attribute {0} is missing in some or all"
+                                                "cases (use '?.' instead of '.' to ignore)"
                                                 .format(repr(node.field)),
                                                 node.object.line,
                                                 node.source)
                 else:
                     return obj[node.field]
-            elif isinstance(obj, ak.layout.Record):
+            elif isinstance(obj, (ak.layout.Record, ak.layout.RecordArray)):
                 if node.field not in obj.keys():
                     if node.maybe:
                         return None
                     else:
-                        raise parser.QueryError("attribute {0} is missing in some or all"                      "cases (use '?.'     instead of '.' to ignore)"
+                        raise parser.QueryError("attribute {0} is missing in some or all"
+                                                "cases (use '?.'     instead of '.' to ignore)"
                                                 .format(repr(node.field)),
                                                 node.object.line,
                                                 node.source)
                 else:
                     return obj[node.field]
-
+            elif isinstance(obj, (ak.layout.EmptyArray)):
+                return ak.layout.EmptyArray()
             else:
-                raise parser.QueryError("value to the left of '.' (get-attribute) must be a record or a list of records", node.object.line, node.source)
+                raise parser.QueryError("value to the left of '.' (get-attribute) must be a record or a list of records",
+                                        node.object.line, node.source)
 
         return unwrap(obj)
 

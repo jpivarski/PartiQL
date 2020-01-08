@@ -423,6 +423,56 @@ best_leptons = {
     assert tolist(output) == [{'best_leptons': [{'pt': 1, 'charge': 1, 'iso': 10}, {'pt': 2, 'charge': -1, 'iso': 10}]}, {'best_leptons': []}, {'best_leptons': [{'pt': 4.4, 'charge': 1, 'iso': 50}, {'pt': 5.5, 'charge': -1, 'iso': 30}]}, {'best_leptons': [{'pt': 1, 'charge': 1, 'iso': 9}, {'pt': 2, 'charge': -1, 'iso': 8}]}]
 
 @pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_reducers(dataset):
+    thedata = dataset()
+    
+    output, counter = run(r"""
+x = count(muons);
+y = count(stuff);
+""", thedata)
+
+    assert(tolist(output) == [{'x': 3, 'y': 0}, {'x': 0, 'y': 1}, {'x': 2, 'y': 2}, {'x': 4, 'y': 3}])
+
+    output, counter = run(r"""
+xx = sum(muons.pt);
+yy = sum(stuff);
+""", thedata)
+
+    assert(tolist(output) == [{'xx': 6.6, 'yy': 0}, {'xx': 0, 'yy': 1}, {'xx': 9.9, 'yy': 4}, {'xx': 33.0, 'yy': 9}])
+
+    output, counter = run(r"""
+xxx = if(count(muons) > 0) then min(muons.pt) else 0;
+yyy = if(count(stuff) > 0) then min(stuff) else 0;
+""", thedata)
+
+    assert(tolist(output) == [{'xxx': 1.1, 'yyy': 0}, {'xxx': 0, 'yyy': 1}, {'xxx': 4.4, 'yyy': 2}, {'xxx': 6.6, 'yyy': 3}])
+
+    output, counter = run(r"""
+xxxx = if(count(muons) > 0) then max(muons.pt) else 0;
+yyyy = if(count(stuff) > 0) then max(stuff) else 0;
+""", thedata)
+
+    assert(tolist(output) == [{'xxxx': 3.3, 'yyyy': 0}, {'xxxx': 0, 'yyyy': 1}, {'xxxx': 5.5, 'yyyy': 2}, {'xxxx': 9.9, 'yyyy': 3}])
+
+    output, counter = run(r"""
+xxxxx = { temp = muons with { passes = pt > 2 };
+          any(temp.passes) }
+yyyyy = { temp = muons with { passes = pt > 2 };
+          any(temp.passes) }
+""", thedata)
+
+    assert(tolist(output) == [{'xxxxx': True, 'yyyyy': True}, {'xxxxx': False, 'yyyyy': False}, {'xxxxx': True, 'yyyyy': True}, {'xxxxx': True, 'yyyyy': True}])
+
+    output, counter = run(r"""
+xxxxxx = { temp = muons with { passes = pt > 2 };
+           all(temp.passes) }
+yyyyyy = { temp = muons with { passes = pt > 2 };
+           all(temp.passes) }
+""", thedata)
+    
+    assert(tolist(output) == [{'xxxxxx': False, 'yyyyyy': False}, {'xxxxxx': True, 'yyyyyy': True}, {'xxxxxx': True, 'yyyyyy': True}, {'xxxxxx': True, 'yyyyyy': True}])
+
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
 def test_hist(dataset):
     thedata = dataset()
 
