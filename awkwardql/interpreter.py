@@ -1071,13 +1071,13 @@ class ReducerFunction:
             raise parser.QueryError("reducer function {0} takes exactly one argument".format(repr(self.name)), node.line, node.source)
 
         arg = runstep(node.arguments[0], symbols, counter, weight, rowkey)
-        
+
         argval = arg
         isAwkward = True
         if isinstance(arg, data.ListInstance):
             isAwkward = False
             argval = arg.value
-        
+
         if arg is None:
             return None
         if not isinstance(arg, (data.ListInstance, ak.layout.RecordArray, ak.layout.NumpyArray, ak.layout.EmptyArray)):
@@ -1092,8 +1092,6 @@ class ReducerFunction:
                     raise parser.QueryError("reducer function {0} must be given a list of {1}"
                                             .format(repr(self.name), self.typecheck.__doc__),
                                             node.arguments[0].line, node.source)
-
-        
 
         if len(argval) == 0 and self.identity is None:
             return None
