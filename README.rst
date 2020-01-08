@@ -1,6 +1,11 @@
 AwkwardQL - SQL-like language for awkward arrays
 ================================================
 
+|GitHub Actions Status: CI|
+|Binder|
+|PyPI version|
+|Supported Python versions|
+
 .. inclusion-marker-1-do-not-remove
 
 A SQL-like language for doing set operations on data in Awkward Arrays.
@@ -42,3 +47,15 @@ The following are installed automatically when you install coffea with pip:
 Documentation
 =============
 Not yet developed, but you should check out the notebooks in this repository!
+
+.. |GitHub Actions Status: CI| image:: https://github.com/lgray/AwkwardQL/workflows/CI/CD/badge.svg
+ :target: https://github.com/lgray/AwkwardQL/actions?query=workflow%3ACI%2FCD+branch%3Amaster
+
+.. |Binder| image:: https://mybinder.org/badge_logo.svg
+ :target: https://mybinder.org/v2/gh/lgray/AwkwardQL/master
+
+.. |PyPI version| image:: https://badge.fury.io/py/awkwardql.svg
+ :target: https://badge.fury.io/py/awkwardql
+
+.. |Supported Python versions| image:: https://img.shields.io/pypi/pyversions/awkwardql.svg
+ :target: https://pypi.org/project/awkwardql/
