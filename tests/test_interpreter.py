@@ -51,9 +51,38 @@ def test_dataset_realistic_awkward():
     data = ak.Array(test_dataset_realistic().tolist())
     return data
 
+def removeNones(d):
+    clean = None
+    print(type(d),':',d)
+    if isinstance(d, list):
+        clean = [removeNones(v) for v in d]
+    elif isinstance(d, dict):
+        clean = {}
+        for k, v in d.items():
+            if isinstance(v, dict):
+                nested = removeNones(v)
+                if len(nested.keys()) > 0:
+                    clean[k] = nested
+            elif isinstance(v, list):
+                cleaned = []
+                for val in v:
+                    if val is None:
+                        continue
+                    if isinstance(val, (dict, list)):
+                        cleaned.append(removeNones(val))
+                    else:
+                        cleaned.append(val)
+                clean[k] = cleaned
+                
+            elif v is not None:
+                clean[k] = v
+    else:
+        raise Exception('Nope')
+    return clean
+
 def tolist(output):
     if isinstance(output, ak.Array):
-        return ak.tolist(output)
+        return removeNones(ak.tolist(output))
     return output.tolist()
 
 @pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
@@ -362,48 +391,54 @@ grouped = muons as m1 cross muons as m2 group by m2
 """, thedata)
     assert tolist(output) == [{"grouped": [[{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 1.1, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 1.1, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 2.2, "iso": 0}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 2.2, "iso": 0}}], [{"m1": {"pt": 1.1, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 2.2, "iso": 0}, "m2": {"pt": 3.3, "iso": 100}}, {"m1": {"pt": 3.3, "iso": 100}, "m2": {"pt": 3.3, "iso": 100}}]]}, {"grouped": []}, {"grouped": [[{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 4.4, "iso": 50}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 4.4, "iso": 50}}], [{"m1": {"pt": 4.4, "iso": 50}, "m2": {"pt": 5.5, "iso": 30}}, {"m1": {"pt": 5.5, "iso": 30}, "m2": {"pt": 5.5, "iso": 30}}]]}, {"grouped": [[{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 6.6, "iso": 1}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 6.6, "iso": 1}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 7.7, "iso": 2}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 7.7, "iso": 2}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 8.8, "iso": 3}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 8.8, "iso": 3}}], [{"m1": {"pt": 6.6, "iso": 1}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 7.7, "iso": 2}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 8.8, "iso": 3}, "m2": {"pt": 9.9, "iso": 4}}, {"m1": {"pt": 9.9, "iso": 4}, "m2": {"pt": 9.9, "iso": 4}}]]}]
 
-def test_tabular_max():
+@pytest.mark.parametrize("dataset", [test_dataset, test_dataset_awkward])
+def test_tabular_max(dataset):
+    thedata = dataset()
+
     output, counter = run(r"""
 x = 3
 extreme = muons max by pt
-""", test_dataset())
-    assert output.tolist() == [{"x": 3, "extreme": {"pt": 3.3, "iso": 100}}, {"x": 3}, {"x": 3, "extreme": {"pt": 5.5, "iso": 30}}, {"x": 3, "extreme": {"pt": 9.9, "iso": 4}}]
+""", thedata)
+    assert tolist(output) == [{"x": 3, "extreme": {"pt": 3.3, "iso": 100}}, {"x": 3}, {"x": 3, "extreme": {"pt": 5.5, "iso": 30}}, {"x": 3, "extreme": {"pt": 9.9, "iso": 4}}]
 
     output, counter = run(r"""
 x = 3
 extreme = muons min by pt
-""", test_dataset())
-    assert output.tolist() == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}}]
+""", thedata)
+    assert tolist(output) == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}}]
 
     output, counter = run(r"""
 extreme = muons min by pt
 whatever = has extreme
-""", test_dataset())
-    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": True}, {"whatever": False}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": True}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": True}]
+""", thedata)
+    assert tolist(output) == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": True}, {"whatever": False}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": True}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": True}]
 
     output, counter = run(r"""
 extreme = muons min by pt
 whatever = if has extreme then extreme.iso else -100
-""", test_dataset())
-    assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"whatever": -100}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
+""", thedata)
+    assert tolist(output) == [{"extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"whatever": -100}, {"extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
 
     output, counter = run(r"""
 x = 3
 extreme = muons min by pt
 whatever = if has extreme then extreme.iso
-""", test_dataset())
-    assert output.tolist() == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
+""", thedata)
+    assert tolist(output) == [{"x": 3, "extreme": {"pt": 1.1, "iso": 0}, "whatever": 0}, {"x": 3}, {"x": 3, "extreme": {"pt": 4.4, "iso": 50}, "whatever": 50}, {"x": 3, "extreme": {"pt": 6.6, "iso": 1}, "whatever": 1}]
+
+def test_tabular_max_with_identities():
+    thedata = test_dataset()
 
     output, counter = run(r"""
 extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
 whatever = if has extreme then extreme?.iso2
-""", test_dataset())
+""", thedata)
     assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
 
     output, counter = run(r"""
 extreme = muons where iso > 2 with { iso2 = 2*iso } union muons min by pt
 whatever = ?extreme?.iso2
-""", test_dataset())
+""", thedata)
     assert output.tolist() == [{"extreme": {"pt": 1.1, "iso": 0}}, {"extreme": {"pt": 4.4, "iso": 50, "iso2": 100}, "whatever": 100}, {"extreme": {"pt": 6.6, "iso": 1}}]
 
 @pytest.mark.parametrize("dataset", [test_dataset_realistic, test_dataset_realistic_awkward])

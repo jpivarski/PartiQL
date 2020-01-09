@@ -1439,7 +1439,7 @@ def runstep(node, symbols, counter, weight, rowkey):
 good_types = (float, int, bytes, str, bool, ak.layout.Record, ak.layout.Content)
 
 
-def run(source, dataset):
+def run(source, dataset, verbose=False):
     if not isinstance(source, parser.AST):
         source = parser.parse(source)
 
@@ -1471,15 +1471,25 @@ def run(source, dataset):
                     out[n] = modified[n]
                 output.append(out)
             else:
+                if verbose:
+                    print('out.beginrecord()')
                 output.beginrecord()
                 for n in modified:
+                    if verbose:
+                        print('out.field("{0}")'.format(n))
                     output.field(n)
                     val = modified[n] if isinstance(modified[n], good_types) else modified[n].value
                     if isinstance(val, ak.layout.RecordArray):
+                        if verbose:
+                            print('out.beginlist()')
                         output.beginlist()
-                    generate_awkward(val, output)
+                    generate_awkward(val, output, verbose=verbose)
                     if isinstance(val, ak.layout.RecordArray):
+                        if verbose:
+                            print('out.endlist()')
                         output.endlist()
+                if verbose:
+                    print('out.endrecord()')
                 output.endrecord()
 
     if isAwkward:
